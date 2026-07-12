@@ -346,37 +346,15 @@ def download():
 
 PLUSVIBE_BASE = 'https://api.plusvibe.ai/api/v1'
 APP_URL = 'https://app.plusvibe.ai'
-
-@app.route('/api/plusvibe/auth', methods=['POST'])
-def plusvibe_auth():
-    """Validate PlusVibe API key and return workspaces."""
-    data = request.get_json(silent=True) or {}
-    api_key = (data.get('api_key') or '').strip()
-    if not api_key:
-        return jsonify({'success': False, 'error': 'API key required'}), 400
-    try:
-        r = requests.get(f'{PLUSVIBE_BASE}/authenticate',
-            headers={'x-api-key': api_key}, timeout=10)
-        if r.status_code != 200:
-            return jsonify({'success': False, 'error': f'Auth failed ({r.status_code})'}), 400
-        d = r.json()
-        if d.get('status') != 'success':
-            return jsonify({'success': False, 'error': d.get('message', 'Auth failed')}), 400
-        return jsonify({'success': True, 'workspaces': d.get('workspaces', [])})
-    except requests.exceptions.Timeout:
-        return jsonify({'success': False, 'error': 'Connection timed out'}), 504
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+PLUSVIBE_API_KEY = '15ef281c-f0872347-6eb1dd65-0914fcd1'
+PLUSVIBE_WS_ID = '6a504024997812a6e6981e1f'
 
 @app.route('/api/push-to-plusvibe/<list_id>', methods=['POST'])
 def push_to_plusvibe(list_id):
     """Push deliverable emails from a verified list to PlusVibe campaign."""
     data = request.get_json(silent=True) or {}
-    api_key = (data.get('api_key') or '').strip()
-    workspace_id = (data.get('workspace_id') or '').strip()
     campaign_name = (data.get('campaign_name') or '').strip() or 'Email Verifier Import'
-    if not api_key or not workspace_id:
-        return jsonify({'success': False, 'error': 'api_key and workspace_id required'}), 400
+    api_key, workspace_id = PLUSVIBE_API_KEY, PLUSVIBE_WS_ID
     
     db = get_db()
     row = db.execute('SELECT * FROM verified_lists WHERE id = ?', (list_id,)).fetchone()

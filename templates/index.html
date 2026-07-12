@@ -90,27 +90,6 @@ tr:hover td{background:rgba(59,130,246,0.03)}
 <div id="listsTab" style="display:none"><div id="listsContent"></div></div>
 </div>
 <div class="toast" id="toast"></div>
-<div class="modal-overlay" id="pvModal" onclick="if(event.target===this)closePlusVibeModal()">
-<div class="modal-box">
-<h3>🚀 Push to PlusVibe</h3>
-<label>PlusVibe API Key</label>
-<input type="text" id="pvApiKey" placeholder="Paste your PlusVibe API key" />
-<button class="btn btn-primary" id="pvConnectBtn" onclick="plusvibeConnect()" style="width:100%;justify-content:center">Connect</button>
-<div id="pvWorkspaceWrap" style="display:none">
-<label>Workspace</label>
-<select id="pvWorkspaceSelect"></select>
-</div>
-<div id="pvCampaignWrap" style="display:none">
-<label>Campaign Name (optional)</label>
-<input type="text" id="pvCampaignName" placeholder="Email Verifier Import" />
-</div>
-<div id="pvPushWrap" style="display:none">
-<button class="btn btn-success" id="pvPushBtn" onclick="plusvibePush()" style="width:100%;justify-content:center">Push Deliverable Leads</button>
-</div>
-<div id="pvStatus" style="margin-top:12px;font-size:13px"></div>
-<button class="btn btn-outline btn-sm" onclick="closePlusVibeModal()" style="margin-top:12px;width:100%;justify-content:center">Close</button>
-</div>
-</div>
 <script>
 let lastResults = [];
 function smtpLabel(code, catchAll) {
@@ -336,7 +315,7 @@ async function toggleDetail(listId, silent) {
       '<span style="color:#64748B">Invalid: <span style="color:#EF4444">'+ic+'</span></span>' +
       '<span style="color:#64748B">Unknown: <span style="color:#F59E0B">'+uc+'</span></span>' +
       ' <button class="btn btn-success btn-sm" id="smtpListBtn-'+listId+'" onclick="runListSmtp(\''+listId+'\')">🔍 Run SMTP Check</button>' +
-      ' <button class="btn btn-primary btn-sm" onclick="openPlusVibeModal(\''+listId+'\')">🚀 Push to PlusVibe</button>' +
+      ' <button class="btn btn-primary btn-sm" id="pvPushBtn-'+listId+'" onclick="pushToPlusVibe(\''+listId+'\')">🚀 Push to PlusVibe</button>' +
       '</div>';
     html += '<div class="table-wrap"><table><thead><tr><th class="mark-cell"></th>';
     for (const h of d.headers) {
@@ -415,67 +394,36 @@ async function delList(id) {
   try { await fetch('/api/verified-lists/'+id, {method:'DELETE'}); loadLists(); }
   catch(e) { toast('❌ '+e.message, 'error'); }
 }
-// PlusVibe push
-let pvListId = null;
-function openPlusVibeModal(listId) {
-  pvListId = listId;
-  document.getElementById('pvModal').classList.add('open');
-  document.getElementById('pvApiKey').value = '';
-  document.getElementById('pvWorkspaceWrap').style.display = 'none';
-  document.getElementById('pvCampaignWrap').style.display = 'none';
-  document.getElementById('pvConnectBtn').style.display = '';
-  document.getElementById('pvPushWrap').style.display = 'none';
-  document.getElementById('pvStatus').textContent = '';
-  document.getElementById('pvApiKey').focus();
-}
-function closePlusVibeModal() {
-  document.getElementById('pvModal').classList.remove('open');
-}
-async function plusvibeConnect() {
-  const key = document.getElementById('pvApiKey').value.trim();
-  if (!key) { toast('❌ Enter API key', 'error'); return; }
-  const btn = document.getElementById('pvConnectBtn');
-  btn.disabled = true; btn.textContent = '⏳ Connecting...';
-  document.getElementById('pvStatus').textContent = '';
-  try {
-    const r = await fetch('/api/plusvibe/auth', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({api_key: key}) });
-    const d = await r.json();
-    if (!d.success) { toast('❌ '+d.error, 'error'); btn.disabled = false; btn.textContent = 'Connect'; return; }
-    const ws = d.workspaces || [];
-    if (!ws.length) { toast('❌ No workspaces found', 'error'); btn.disabled = false; btn.textContent = 'Connect'; return; }
-    let opts = '<option value="">Select workspace...</option>';
-    ws.forEach(w => { opts += '<option value="'+w._id+'">'+String(w.name).replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</option>'; });
-    document.getElementById('pvWorkspaceSelect').innerHTML = opts;
-    document.getElementById('pvWorkspaceWrap').style.display = 'block';
-    document.getElementById('pvCampaignWrap').style.display = 'block';
-    document.getElementById('pvConnectBtn').style.display = 'none';
-    document.getElementById('pvPushWrap').style.display = 'block';
-    document.getElementById('pvStatus').innerHTML = '<span style="color:#22C55E">✅ Connected, '+ws.length+' workspaces</span>';
-  } catch(e) { toast('❌ '+e.message, 'error'); }
-  btn.disabled = false; btn.textContent = 'Connect';
-}
-async function plusvibePush() {
-  const key = document.getElementById('pvApiKey').value.trim();
-  const ws = document.getElementById('pvWorkspaceSelect').value;
-  const name = document.getElementById('pvCampaignName').value.trim() || 'Email Verifier Import';
-  if (!key || !ws) { toast('❌ Select workspace first', 'error'); return; }
-  const btn = document.getElementById('pvPushBtn');
+// PlusVibe push — one click
+async function pushToPlusVibe(listId) {
+  const btn = document.getElementById('pvPushBtn-'+listId);
+  if (!btn) { toast('❌ Button not found', 'error'); return; }
   btn.disabled = true; btn.textContent = '⏳ Pushing...';
-  document.getElementById('pvStatus').innerHTML = '<span style="color:#F59E0B">⏳ Creating campaign & pushing leads...</span>';
+  const detail = document.getElementById('detail-'+listId);
+  detail.insertAdjacentHTML('afterbegin',
+    '<div id="pvProgress" style="padding:12px 0"><div style="display:flex;justify-content:space-between;font-size:11px;color:#64748B;margin-bottom:4px">' +
+    '<span id="pvProgressText">Starting...</span><span id="pvProgressPct"></span></div>' +
+    '<div style="background:#0B0D14;border-radius:6px;height:18px;overflow:hidden">' +
+    '<div id="pvProgressBar" style="width:0%;height:100%;background:linear-gradient(90deg,#8B5CF6,#6366F1);border-radius:6px;transition:width .3s ease"></div></div></div>');
   try {
-    const r = await fetch('/api/push-to-plusvibe/'+pvListId, { method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({api_key: key, workspace_id: ws, campaign_name: name}) });
+    const r = await fetch('/api/push-to-plusvibe/'+listId, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' });
     const d = await r.json();
-    if (!d.success) { toast('❌ '+d.error, 'error'); btn.disabled = false; btn.textContent = 'Push to PlusVibe'; return; }
-    let html = '<span style="color:#22C55E">✅ Done</span><div style="margin-top:10px;font-size:13px;line-height:1.6">';
-    html += '📧 '+d.total_emails+' total · ✅ '+d.added+' added<br>';
-    if (d.errors && d.errors.length) html += '⚠️ Errors: '+d.errors.join(', ')+'<br>';
-    html += '<a href="'+d.campaign_url+'" target="_blank" style="color:#3B82F6;margin-top:8px;display:inline-block">🔗 Open campaign in PlusVibe →</a>';
-    html += '</div>';
-    document.getElementById('pvStatus').innerHTML = html;
-    btn.textContent = '✅ Done';
-    toast('✅ '+d.added+' leads pushed to PlusVibe', 'success');
-  } catch(e) { toast('❌ '+e.message, 'error'); btn.disabled = false; btn.textContent = 'Push to PlusVibe'; }
+    if (document.getElementById('pvProgressText')) document.getElementById('pvProgressText').textContent = 'Done';
+    if (document.getElementById('pvProgressPct')) document.getElementById('pvProgressPct').textContent = '100%';
+    if (document.getElementById('pvProgressBar')) document.getElementById('pvProgressBar').style.width = '100%';
+    if (!d.success) { toast('❌ '+d.error, 'error'); btn.textContent = '🚀 Push to PlusVibe'; btn.disabled = false; return; }
+    setTimeout(() => {
+      const p = document.getElementById('pvProgress');
+      if (p) p.remove();
+    }, 3000);
+    btn.textContent = '✅ Pushed';
+    toast('✅ '+d.added+' leads pushed · <a href="'+d.campaign_url+'" target="_blank" style="color:white;text-decoration:underline">Open PlusVibe</a>', 'success');
+  } catch(e) {
+    toast('❌ '+e.message, 'error');
+    btn.textContent = '🚀 Push to PlusVibe'; btn.disabled = false;
+    const p = document.getElementById('pvProgress');
+    if (p) p.remove();
+  }
 }
 </script>
 </body>
