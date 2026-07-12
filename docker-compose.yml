@@ -1,0 +1,12 @@
+services:
+  verifier:
+    build: .
+    container_name: email-verifier
+    restart: unless-stopped
+    ports:
+      - "5002:5002"
+    volumes:
+      - ./app.db:/app/app.db
+      - ./data:/app/data
+    environment:
+      - TZ=Europe/Madrid
