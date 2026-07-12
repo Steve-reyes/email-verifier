@@ -1,284 +1,348 @@
-import re
-import os
-import time
-import csv
-import io
-import socket
-import dns.resolver
-import dns.exception
-import requests
-from urllib.parse import urlparse
-from flask import Flask, render_template, request, jsonify
+import os, re, json, requests, time, socket, dns.resolver, hashlib, hmac, string
+from flask import Flask, request, jsonify, render_template, Response, g
+import sqlite3, csv, io, uuid
+from datetime import datetime
+import logging
+
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger('verifier')
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+UPLOAD_DIR = 'uploads'
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# ---- DISPOSABLE DOMAIN LIST ----
-DISPOSABLE = {
-    'mailinator.com', 'guerrillamail.com', '10minutemail.com', 'tempmail.com',
-    'temp-mail.org', 'throwaway.email', 'yopmail.com', 'sharklasers.com',
-    'grr.la', 'trashmail.com', 'maildrop.cc', 'getairmail.com',
-    'tempinbox.com', 'emailondeck.com', 'burnermail.io', 'hmail.us',
-    'spam4.me', 'mailexpire.com', 'mailmetrash.com', 'discard.email',
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'verifier.db')
+SMTP_DAEMON_URL = 'http://192.255.136.177:8081/verify'
+SMTP_DAEMON_TIMEOUT = 15
+
+DUMMY_LOCALS = {
+    'johndoe', 'testuser', 'test', 'user', 'username',
+    'noreply', 'no-reply', 'mailer-daemon', 'postmaster',
+    'webmaster', 'abuse', 'hostmaster', 'root', 'mail', 'email', 'hello', 'hi',
+    'testaccount', 'demo', 'sample', 'example', 'placeholder', 'temp', 'temporary',
+    'fake', 'null', 'void', 'empty', 'none', 'unknown', 'user1', 'user2',
+    'user123', 'test123', 'guest', 'register', 'signup', 'newsletter', 'subscribe',
+    'unsubscribe', 'spam', 'trash', 'junk', 'default', 'new', 'my', 'your',
+    'some', 'any', 'every', 'no', 'yes', 'true', 'false', '1', '12', '123',
+    '1234', '12345', '123456', '1234567', '12345678', '123456789', 'aaaa',
+    'aa', 'a', 'b', 'c', 'x', 'y', 'z', 'abc', 'xyz', 'qwerty', 'asdf',
+    'zxcv', 'pass', 'password', 'letmein', 'welcome', 'changeme',
+}
+PLACEHOLDER_DOMAINS = {
+    'example.com', 'example.org', 'example.net', 'test.com', 'test.org',
+    'test.net', 'domain.com', 'yourdomain.com', 'yourdomain.net',
+    'mydomain.com', 'somedomain.com', 'placeholder.com', 'company.com',
+    'yourcompany.com', 'email.com', 'mail.com', 'tempmail.com',
+    'domain.net', 'domain.org',
+}
+LOW_QUALITY_DOMAINS = {
+    'birdeye.com', 'mailservice.com',
+    'facebook.com', 'facebookmail.com', 'fb.com', 'fbmail.com',
+    'twitter.com', 'x.com', 'tweetmail.com',
+    'instagram.com', 'insta.com',
+    'linkedin.com', 'linkedinmail.com',
+    'youtube.com', 'youtubemail.com',
+    'google.com', 'googlemail.com', 'gmail.com',
+    'yahoo.com', 'yahoomail.com', 'ymail.com',
+    'outlook.com', 'hotmail.com', 'live.com', 'msn.com',
+    'aol.com', 'aim.com',
+    'icloud.com', 'me.com', 'mac.com',
+    'protonmail.com', 'proton.me', 'pm.me',
+    'zoho.com', 'zohomail.com',
+    'yandex.com', 'yandex.ru',
+    'mail.ru', 'inbox.ru', 'list.ru',
+    'gmx.com', 'gmx.de',
+    'tutanota.com', 'tutamail.com',
+    'fastmail.com', 'fastmail.fm',
+    'hey.com', 'envs.net',
+    'migadu.com', 'runbox.com',
+    'rediffmail.com', 'rediffmailpro.com',
+    'hushmail.com', 'hush.com',
+    'countermail.com', 'ctemplar.com',
+    'startmail.com', 'startpage.com',
+    'seznam.cz', 'post.cz', 'email.cz', 'atlas.cz',
+    'centrum.cz', 'volny.cz',
+    'o2.pl', 'wp.pl', 'interia.pl', 'onet.pl',
+    'libero.it', 'virgilio.it', 'tiscali.it',
+    'alice.it', 'tin.it', 'inwind.it',
 }
 
-ROLE_PREFIXES = {'info', 'sales', 'support', 'admin', 'contact', 'help', 'hello', 'team', 'noreply', 'no-reply', 'enquiries', 'mail', 'office', 'marketing'}
-COMMON_TYPOS = {
-    'gmial.com':'gmail.com', 'yaho.com':'yahoo.com', 'hotmai.com':'hotmail.com',
-    'hotmail.co':'hotmail.com', 'gnail.com':'gmail.com', 'gmil.com':'gmail.com',
-    'gamil.com':'gmail.com', 'yahooo.com':'yahoo.com', 'outloo.com':'outlook.com',
-    'outlok.com':'outlook.com', 'aol.co':'aol.com', 'msn.co':'msn.com',
-    'hotmaiil.com':'hotmail.com', 'yhoo.com':'yahoo.com',
-}
-SPAM_TRAPS = {'spamtrap@example.com', 'abuse@spamtrap.net', 'test@mail-tester.com'}
-HIBP_API = 'https://haveibeenpwned.com/api/v3/breachedaccount/%s?truncateResponse=true'
-USER_AGENT = 'EmailVerifier/1.0'
+def get_db():
+    db = getattr(g, '_database', None)
+    if db is None:
+        db = sqlite3.connect(DB_PATH)
+        db.row_factory = sqlite3.Row
+        g._database = db
+    return db
 
-def validate_syntax(email):
-    pattern = r'^[a-zA-Z0-9.!#$%&\'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$'
-    return bool(re.match(pattern, email.strip()))
+@app.teardown_appcontext
+def close_connection(exception):
+    db = getattr(g, '_database', None)
+    if db is not None:
+        db.close()
 
-def get_mx(domain, timeout=5):
+def init_db():
+    db = get_db()
+    db.execute('''CREATE TABLE IF NOT EXISTS verified_lists (
+        id TEXT PRIMARY KEY, list_name TEXT, verified_at TEXT,
+        total_rows INTEGER, total_emails INTEGER,
+        valid_count INTEGER DEFAULT 0, invalid_count INTEGER DEFAULT 0,
+        verification_results TEXT, original_rows TEXT, original_csv_headers TEXT,
+        smtp_done INTEGER DEFAULT 0
+    )''')
+    db.commit()
+    close_connection(None)
+
+with app.app_context():
+    init_db()
+
+def strip_quotes(s):
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in ('"', "'"):
+        return s[1:-1]
+    return s
+
+_rr = dns.resolver.Resolver()
+_rr.timeout = 3
+_rr.lifetime = 3
+
+def _resolve(domain, rtype):
+    try: return list(_rr.resolve(domain, rtype))
+    except Exception: return []
+
+_dns_cache = {}
+def _cached_dns(domain):
+    now = time.time()
+    if domain in _dns_cache and now - _dns_cache[domain]['ts'] < 300:
+        return _dns_cache[domain]
+    mx = _resolve(domain, 'MX')
+    a = _resolve(domain, 'A')
+    result = {'mx': [str(x.exchange).rstrip('.') for x in mx] if mx else 'NO_MX', 'a_record': bool(a)}
+    _dns_cache[domain] = {'ts': now, **result}
+    return result
+
+def is_dummy_email(local, domain):
+    if local in DUMMY_LOCALS: return True
+    if domain in PLACEHOLDER_DOMAINS: return True
+    if domain in DUMMY_LOCALS: return True
+    if local.isdigit() and len(local) >= 2: return True
+    if re.match(r'^(test\d*|user\d+|demo\d*)$', local, re.I): return True
+    if re.match(r'^[a-z]{1,3}$', local, re.I): return True
+    return False
+
+ROLE_LOCALS = {'info', 'sales', 'support', 'contact', 'admin', 'help', 'enquiries', 'hello', 'office', 'team', 'hr', 'careers', 'jobs', 'marketing', 'billing', 'accounts', 'feedback', 'orders', 'shipping', 'returns', 'privacy', 'legal', 'press', 'media', 'partner', 'investor', 'recruitment', 'service', 'reservations', 'booking', 'reception', 'frontdesk', 'noc', 'security', 'abuse', 'postmaster', 'webmaster', 'hostmaster', 'dmca', 'editor', 'subscriptions', 'unsubscribe', 'optout', 'complaints', 'suggestions', 'testimonial', 'referral', 'invite', 'invitation', 'rsvp', 'dpo', 'admin', 'cellphone', 'notifications', 'alert', 'alerts', 'customerservice', 'customer', 'service', 'adm', 'cs', 'info', 'smtp', 'pop3', 'imap', 'dns', 'domain', 'hosting', 'server', 'vps', 'cloud', 'data', 'support', 'licensing', 'register', 'registration', 'confirm', 'verification', 'verify', 'confirm'}
+
+def detect_typo_domain(domain):
+    known = {'gmial.com':'gmail.com','gnail.com':'gmail.com','gmil.com':'gmail.com','gamil.com':'gmail.com','gmaill.com':'gmail.com','gmail.co':'gmail.com','hotmai.com':'hotmail.com','hotmal.com':'hotmail.com','hotmil.com':'hotmail.com','outlok.com':'outlook.com','outllok.com':'outlook.com','yaho.com':'yahoo.com','yhoo.com':'yahoo.com','yahooo.com':'yahoo.com','yahho.com':'yahoo.com','yahu.com':'yahoo.com'}
+    return known.get(domain)
+
+def verify_one_light(email):
+    result = {'email': email, 'valid': None, 'syntax_valid': True, 'catch_all': None, 'role_based': False, 'mx': None, 'dual_rcpt': None, 'spam_trap': False, 'typo': None, 'gravatar': False, 'hibp_count': None, 'a_record': False, 'low_quality': False, 'disposable': False}
+    email = email.strip().lower()
+    result['email'] = email
+    if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
+        result['syntax_valid'] = False; result['valid'] = False; return result
+    local, _, domain = email.partition('@')
+    t = detect_typo_domain(domain)
+    if t: result['typo'] = t; result['valid'] = False; return result
+    if is_dummy_email(local, domain): result['valid'] = False; return result
+    if local in ROLE_LOCALS: result['role_based'] = True
+    cd = domain.lower().replace('www.', '')
+    for lq in LOW_QUALITY_DOMAINS:
+        if cd == lq or cd.endswith('.'+lq): result['low_quality'] = True; break
+    cached = _cached_dns(domain)
+    result['mx'] = cached['mx'] if cached['mx'] != 'NO_MX' else None
+    result['a_record'] = cached['a_record']
+    if bool(cached['mx']) and cached['mx'] != 'NO_MX' and result['syntax_valid'] and cached['a_record']:
+        result['valid'] = True
+    return result
+
+def verify_via_daemon(email):
     try:
-        resolver = dns.resolver.Resolver()
-        resolver.timeout = timeout
-        resolver.lifetime = timeout
-        answers = resolver.resolve(domain, 'MX')
-        records = sorted([(r.preference, str(r.exchange).rstrip('.')) for r in answers])
-        return records[0][1] if records else None
-    except Exception:
-        return None
-
-def has_a_record(domain, timeout=5):
-    try:
-        resolver = dns.resolver.Resolver()
-        resolver.timeout = timeout
-        resolver.lifetime = timeout
-        resolver.resolve(domain, 'A')
-        return True
-    except Exception:
-        return False
-
-def smtp_verify(mx_host, email, timeout=10):
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(timeout)
-        sock.connect((mx_host, 25))
-        resp = sock.recv(1024).decode('utf-8', errors='ignore')
-        sock.sendall(b'EHLO verifier\r\n')
-        sock.recv(1024)
-        sock.sendall(f'MAIL FROM: <checker@{socket.gethostname()}>\r\n'.encode())
-        sock.recv(1024)
-        t0 = time.time()
-        sock.sendall(f'RCPT TO: <{email}>\r\n'.encode())
-        resp = sock.recv(1024).decode('utf-8', errors='ignore')
-        elapsed = time.time() - t0
-        sock.sendall(b'QUIT\r\n')
-        sock.close()
-        return resp.strip()[:3], elapsed
+        r = requests.post(SMTP_DAEMON_URL, json={'email': email}, timeout=SMTP_DAEMON_TIMEOUT)
+        return r.json()
     except Exception as e:
-        return str(e), 0
+        log.warning(f'Daemon call failed for {email}: {e}')
+        return {'email': email, 'valid': None, 'smtp_status': f'ERR: {str(e)[:40]}', 'catch_all': None, 'mx': None}
 
-def smtp_vrfy(mx_host, email, timeout=5):
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(timeout)
-        sock.connect((mx_host, 25))
-        sock.recv(1024)
-        sock.sendall(b'EHLO verifier\r\n')
-        sock.recv(1024)
-        sock.sendall(f'VRFY {email}\r\n'.encode())
-        resp = sock.recv(1024).decode('utf-8', errors='ignore')
-        sock.sendall(b'QUIT\r\n')
-        sock.close()
-        return resp[:3] == '250'
-    except Exception:
-        return False
-
-def dual_rcpt_test(mx_host, real_email, fake_email, timeout=10):
-    """Send real + fake. Both accepted = catch-all."""
-    result = {'catch_all': False, 'details': ''}
-    for label, addr in [('fake', fake_email), ('real', real_email)]:
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(timeout)
-            sock.connect((mx_host, 25))
-            sock.recv(1024)
-            sock.sendall(b'EHLO verifier\r\n')
-            sock.recv(1024)
-            sock.sendall(f'MAIL FROM: <checker@{socket.gethostname()}>\r\n'.encode())
-            sock.recv(1024)
-            sock.sendall(f'RCPT TO: <{addr}>\r\n'.encode())
-            r = sock.recv(1024).decode('utf-8', errors='ignore')
-            sock.sendall(b'QUIT\r\n')
-            sock.close()
-            result[label] = r[:3]
-            result['details'] += f'{label}={r[:3]} '
-        except Exception as e:
-            result[label] = str(e)
-    if result.get('fake') == '250' and result.get('real') == '250':
-        result['catch_all'] = True
-    return result
-
-def gravatar_check(email):
-    import hashlib
-    h = hashlib.md5(email.lower().encode()).hexdigest()
-    try:
-        r = requests.get(f'https://www.gravatar.com/{h}.json', timeout=5, headers={'User-Agent': USER_AGENT})
-        return r.status_code == 200
-    except Exception:
-        return False
-
-def hibp_check(email):
-    try:
-        r = requests.get(HIBP_API % email, timeout=10, headers={'User-Agent': USER_AGENT, 'hibp-api-key': ''})
-        if r.status_code == 200:
-            return len(r.json())
-        return 0
-    except Exception:
-        return -1
-
-def typo_check(domain):
-    for wrong, correct in COMMON_TYPOS.items():
-        if domain == wrong:
-            return {'has_typo': True, 'suggestion': correct}
-    return {'has_typo': False, 'suggestion': ''}
-
-def verify_one(email_raw):
-    email = email_raw.strip().lower()
-    result = {'email': email, 'syntax_valid': False, 'mx': None, 'a_record': False,
-              'disposable': False, 'role_based': False, 'smtp_status': '', 'smtp_time': 0,
-              'vrfy': False, 'dual_rcpt': {}, 'gravatar': False, 'hibp_count': -1,
-              'typo': {}, 'spam_trap': False, 'free_provider': False, 'valid': False}
-
-    # 1. RFC Syntax
-    if not validate_syntax(email):
-        result['syntax_valid'] = False
-        return result
-    result['syntax_valid'] = True
-
-    local, domain = email.split('@')
-    result['typo'] = typo_check(domain)
-
-    # 14. Free provider check
-    free_domains = {'gmail.com','yahoo.com','hotmail.com','outlook.com','aol.com','msn.com','ymail.com','icloud.com','protonmail.com','gmx.com','zoho.com'}
-    if domain in free_domains:
-        result['free_provider'] = True
-
-    # 4. Disposable + 5. Role
-    if domain in DISPOSABLE:
-        result['disposable'] = True
-    if local in ROLE_PREFIXES:
-        result['role_based'] = True
-
-    # 13. Spam trap
-    if email in SPAM_TRAPS:
-        result['spam_trap'] = True
-
-    # 2. MX Record
-    mx = get_mx(domain)
-    if mx:
-        result['mx'] = mx
-    else:
-        result['mx'] = 'NO_MX'
-
-    # 3. A Record fallback
-    result['a_record'] = has_a_record(domain)
-
-    # Cannot proceed without a mail exchanger
-    if not mx or mx == 'NO_MX':
-        return result
-
-    # 6. SMTP RCPT TO
-    status, elapsed = smtp_verify(mx, email)
-    result['smtp_status'] = status
-    result['smtp_time'] = round(elapsed, 2)
-
-    # 7. Dual RCPT (catch-all detection)
-    fake_local = local + 'xqzw9m'  # known fake
-    fake_email = f'{fake_local}@{domain}'
-    dr = dual_rcpt_test(mx, email, fake_email)
-    result['dual_rcpt'] = dr
-
-    # 8. SMTP VRFY
-    result['vrfy'] = smtp_vrfy(mx, email)
-
-    # 10. Gravatar
-    result['gravatar'] = gravatar_check(email)
-
-    # 11. HIBP
-    result['hibp_count'] = hibp_check(email)
-
-    # Overall verdict
-    if status == '250':
-        if dr.get('catch_all'):
-            result['valid'] = True  # catch-all means likely valid
-        else:
-            result['valid'] = True
-    elif status in ('550', '551', '552', '553', '450'):
-        result['valid'] = False
-    else:
-        result['valid'] = None  # Unknown — grey area
-
-    return result
-
-def percent_mark(val):
-    return '🟢' if val else ('🟡' if val is None else '🔴')
+def verify_one(email):
+    return verify_via_daemon(email)
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
 @app.route('/verify', methods=['POST'])
-def verify():
+def verify_endpoint():
     data = request.get_json()
-    raw = data.get('emails', '').strip()
-    lines = [e.strip() for e in raw.replace(',', '\n').split('\n') if e.strip()]
-    if not lines:
-        return jsonify({'error': 'No emails provided'})
-
     results = []
-    for line in lines:
-        r = verify_one(line)
-        results.append(r)
+    for e in data.get('emails', '').split(','):
+        e = e.strip()
+        if e: results.append(verify_one_light(e))
+    v = sum(1 for r in results if r['valid'] is True)
+    iv = sum(1 for r in results if r['valid'] is False)
+    return jsonify({'results': results, 'total': len(results), 'valid': v, 'invalid': iv, 'unknown': len(results)-v-iv})
 
-    # Summary
-    total = len(results)
-    valid = sum(1 for r in results if r['valid'] is True)
-    invalid = sum(1 for r in results if r['valid'] is False)
-    unknown = sum(1 for r in results if r['valid'] is None)
+@app.route('/api/smtp-run', methods=['POST'])
+def smtp_run():
+    data = request.get_json()
+    results = [verify_one(e) for e in data.get('emails', [])]
+    return jsonify({'results': results})
 
-    return jsonify({
-        'total': total,
-        'valid': valid,
-        'invalid': invalid,
-        'unknown': unknown,
-        'results': results,
-    })
+@app.route('/api/upload-and-verify', methods=['POST'])
+def upload_and_verify():
+    file = request.files.get('file')
+    list_name = request.form.get('list_name', 'upload')
+    if not file: return jsonify({'success': False, 'error': 'No file'})
+    content = file.read().decode('utf-8').strip()
+    reader = csv.DictReader(io.StringIO(content))
+    headers = reader.fieldnames or []
+    if not headers: return jsonify({'success': False, 'error': 'Empty CSV'})
+    email_col = None
+    for col in ['Email', 'email', 'EMAIL', 'e-mail', 'E-mail']:
+        if col in headers: email_col = col; break
+    if not email_col: email_col = headers[0]
+    rows = [{h: r.get(h, '') for h in headers} for r in reader]
+    vresults = {}
+    for row in rows:
+        raw = strip_quotes(row.get(email_col, '').strip().lower())
+        if raw and re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', raw) and raw not in vresults:
+            vresults[raw] = verify_one_light(raw)
+    vc = sum(1 for v in vresults.values() if v['valid'] is True)
+    ic = sum(1 for v in vresults.values() if v['valid'] is False)
+    lid = str(uuid.uuid4())
+    db = get_db()
+    db.execute('''INSERT INTO verified_lists (id, list_name, verified_at, total_rows, total_emails, valid_count, invalid_count, verification_results, original_rows, original_csv_headers) VALUES (?,?,?,?,?,?,?,?,?,?)''',
+        (lid, list_name, datetime.utcnow().isoformat(), len(rows), len(vresults), vc, ic,
+         json.dumps(vresults), json.dumps(rows), json.dumps(headers)))
+    db.commit()
+    return jsonify({'success': True, 'list_id': lid, 'list_name': list_name, 'total_emails': len(vresults), 'valid': vc, 'invalid': ic, 'unknown': len(vresults)-vc-ic})
+
+@app.route('/api/verified-lists', methods=['GET'])
+def get_verified_lists():
+    db = get_db()
+    rows = db.execute('SELECT id, list_name, verified_at, total_rows, total_emails, valid_count, invalid_count, smtp_done FROM verified_lists ORDER BY verified_at DESC').fetchall()
+    return jsonify({'lists': [dict(r) for r in rows]})
+
+@app.route('/api/verified-lists/<list_id>/download', methods=['GET'])
+def download_verified_list(list_id):
+    db = get_db()
+    row = db.execute('SELECT * FROM verified_lists WHERE id = ?', (list_id,)).fetchone()
+    if not row: return jsonify({'error': 'List not found'}), 404
+    headers = json.loads(row['original_csv_headers'])
+    original_rows = json.loads(row['original_rows'])
+    vresults = json.loads(row['verification_results'])
+    email_col = next((c for c in ['Email', 'email', 'EMAIL', 'e-mail', 'E-mail'] if c in headers), headers[0])
+    output = io.StringIO()
+    w = csv.writer(output)
+    w.writerow(headers + ['Status', 'Catch-All', 'Spam Trap', 'Role', 'SMTP Status'])
+    for r in original_rows:
+        raw = strip_quotes(r.get(email_col, '').strip().lower())
+        vr = vresults.get(raw, {})
+        status = 'Invalid'
+        if vr.get('valid') is True: status = 'Valid'
+        elif vr.get('valid') is None: status = 'Unknown'
+        w.writerow([r.get(h, '') for h in headers] + [status, 'Yes' if vr.get('catch_all') else 'No', 'Yes' if vr.get('spam_trap') else 'No', 'Yes' if vr.get('role_based') else 'No', vr.get('smtp_status', 'quick')])
+    return Response(output.getvalue(), mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename={row["list_name"]}_verified.csv'})
+
+@app.route('/api/verified-lists/<list_id>/download-deliverable', methods=['GET'])
+def download_deliverable(list_id):
+    db = get_db()
+    row = db.execute('SELECT * FROM verified_lists WHERE id = ?', (list_id,)).fetchone()
+    if not row: return jsonify({'error': 'List not found'}), 404
+    headers = json.loads(row['original_csv_headers'])
+    original_rows = json.loads(row['original_rows'])
+    vresults = json.loads(row['verification_results'])
+    email_col = next((c for c in ['Email', 'email', 'EMAIL', 'e-mail', 'E-mail'] if c in headers), headers[0])
+    output = io.StringIO()
+    w = csv.writer(output)
+    w.writerow(headers)
+    count = 0
+    for r in original_rows:
+        raw = strip_quotes(r.get(email_col, '').strip().lower())
+        vr = vresults.get(raw, {})
+        if vr.get('valid') is True:
+            ca = vr.get('catch_all')
+            ss = vr.get('smtp_status', '')
+            is_deliverable = True
+            if ca and ca.get('catch_all'):
+                is_deliverable = False
+            if ss and ss.startswith('550'):
+                is_deliverable = False
+            if is_deliverable:
+                w.writerow([strip_quotes(r.get(h, '')) for h in headers])
+                count += 1
+    if count == 0:
+        return Response('No deliverable emails found', mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename={row["list_name"]}_deliverable.csv'})
+    return Response(output.getvalue(), mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename={row["list_name"]}_deliverable.csv'})
+
+@app.route('/api/verified-lists/<list_id>/detail', methods=['GET'])
+def verified_list_detail(list_id):
+    db = get_db()
+    row = db.execute('SELECT * FROM verified_lists WHERE id = ?', (list_id,)).fetchone()
+    db.close()
+    if not row: return jsonify({'error': 'List not found'}), 404
+    headers = json.loads(row['original_csv_headers'])
+    original_rows = json.loads(row['original_rows'])
+    vresults = json.loads(row['verification_results'])
+    email_col = next((c for c in ['Email', 'email', 'EMAIL', 'e-mail', 'E-mail'] if c in headers), headers[0])
+    rows_data = [{'original': r, 'verification': vresults.get(strip_quotes(r.get(email_col, '').strip().lower()), {})} for r in original_rows]
+    return jsonify({'list_name': row['list_name'], 'verified_at': row['verified_at'], 'headers': headers, 'email_col': email_col, 'rows': rows_data, 'total_rows': row['total_rows'], 'total_emails': row['total_emails'], 'valid_count': row['valid_count'], 'invalid_count': row['invalid_count']})
+
+@app.route('/api/list-smtp-check/<list_id>', methods=['POST'])
+def list_smtp_check(list_id):
+    db = get_db()
+    row = db.execute('SELECT * FROM verified_lists WHERE id = ?', (list_id,)).fetchone()
+    if not row: return jsonify({'error': 'List not found'}), 404
+    vresults = json.loads(row['verification_results'])
+    data = request.get_json(silent=True) or {}
+    emails_param = data.get('emails')
+    def merge_smtp(result, sr):
+        result['smtp_status'] = sr.get('smtp_status', 'ERR')
+        result['smtp_time'] = sr.get('smtp_time', None)
+        result['catch_all'] = sr.get('catch_all', None)
+        if result.get('valid') is not False:
+            result['valid'] = sr.get('valid', result.get('valid'))
+        result['mx'] = sr.get('mx', result.get('mx'))
+        result['rcp_response'] = sr.get('rcp_response', result.get('rcp_response'))
+    if emails_param:
+        for email in emails_param:
+            email = email.strip().lower()
+            if email in vresults and (vresults[email].get('valid') is True or vresults[email].get('valid') is None):
+                merge_smtp(vresults[email], verify_one(email))
+    else:
+        headers = json.loads(row['original_csv_headers'])
+        original_rows = json.loads(row['original_rows'])
+        email_col = next((c for c in ['Email', 'email', 'EMAIL', 'e-mail', 'E-mail'] if c in headers), headers[0])
+        for r in original_rows:
+            raw = strip_quotes(r.get(email_col, '').strip().lower())
+            if raw and raw in vresults and (vresults[raw].get('valid') is True or vresults[raw].get('valid') is None):
+                merge_smtp(vresults[raw], verify_one(raw))
+    vc = sum(1 for v in vresults.values() if v['valid'] is True)
+    ic = sum(1 for v in vresults.values() if v['valid'] is False)
+    db.execute('UPDATE verified_lists SET verification_results=?, valid_count=?, invalid_count=?, smtp_done=1 WHERE id=?',
+        (json.dumps(vresults), vc, ic, list_id))
+    db.commit()
+    return jsonify({'status': 'ok', 'valid': vc, 'invalid': ic, 'unknown': len(vresults)-vc-ic})
+
+@app.route('/api/verified-lists/<list_id>', methods=['DELETE'])
+def delete_verified_list(list_id):
+    db = get_db()
+    db.execute('DELETE FROM verified_lists WHERE id = ?', (list_id,))
+    db.commit()
+    return jsonify({'success': True})
 
 @app.route('/download', methods=['POST'])
 def download():
     data = request.get_json()
     results = data.get('results', [])
-    if not results:
-        return jsonify({'error': 'No data'}), 400
-
-    out = io.StringIO()
-    w = csv.writer(out)
-    w.writerow(['Email', 'Valid', 'Syntax', 'MX', 'A Record', 'Disposable', 'Role Based',
-                'SMTP Status', 'SMTP Time', 'VRFY', 'Catch-All',
-                'Gravatar', 'HIBP Leaks', 'Typo', 'Typo Suggestion', 'Spam Trap', 'Free Provider'])
-
+    output = io.StringIO()
+    w = csv.writer(output)
+    w.writerow(['Email', 'Status', 'MX', 'SMTP Status', 'Catch-All', 'Role-Based', 'Spam Trap'])
     for r in results:
-        w.writerow([
-            r['email'], r['valid'], r['syntax_valid'], r['mx'], r['a_record'],
-            r['disposable'], r['role_based'], r['smtp_status'], r['smtp_time'],
-            r['vrfy'], r['dual_rcpt'].get('catch_all', False),
-            r['gravatar'], r['hibp_count'],
-            r['typo'].get('has_typo', False), r['typo'].get('suggestion', ''),
-            r['spam_trap'], r['free_provider'],
-        ])
-
-    return out.getvalue(), 200, {'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename=verification_results.csv'}
+        status = 'Valid' if r.get('valid') is True else ('Invalid' if r.get('valid') is False else 'Unknown')
+        w.writerow([r.get('email'), status, r.get('mx',''), r.get('smtp_status',''), 'Yes' if r.get('catch_all') else 'No', 'Yes' if r.get('role_based') else 'No', 'Yes' if r.get('spam_trap') else 'No'])
+    return Response(output.getvalue(), mimetype='text/csv', headers={'Content-Disposition': 'attachment; filename=results.csv'})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5002, debug=True)
+    app.run(host='0.0.0.0', port=5002, debug=False)

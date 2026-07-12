@@ -5,212 +5,393 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Email Verifier</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0F1117; color: #E2E8F0; min-height: 100vh; }
-  .container { max-width: 960px; margin: 0 auto; padding: 32px 20px; }
-  h1 { font-size: 24px; font-weight: 700; margin-bottom: 4px; color: #F1F5F9; }
-  .sub { color: #64748B; font-size: 14px; margin-bottom: 24px; }
-  .card { background: #151823; border: 1px solid rgba(148,163,184,0.08); border-radius: 12px; padding: 24px; margin-bottom: 20px; }
-  textarea { width: 100%; height: 180px; background: #0B0D14; border: 1px solid rgba(148,163,184,0.12); border-radius: 8px; color: #E2E8F0; padding: 14px; font-size: 14px; font-family: 'SFMono-Regular', Consolas, monospace; resize: vertical; outline: none; }
-  textarea:focus { border-color: #3B82F6; }
-  .label { font-size: 13px; font-weight: 600; color: #94A3B8; margin-bottom: 8px; }
-  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-  .btn { padding: 10px 24px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: all .15s; display: inline-flex; align-items: center; gap: 8px; }
-  .btn-primary { background: #3B82F6; color: #fff; }
-  .btn-primary:hover { background: #2563EB; }
-  .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
-  .btn-outline { background: transparent; color: #94A3B8; border: 1px solid rgba(148,163,184,0.2); }
-  .btn-outline:hover { border-color: #3B82F6; color: #3B82F6; }
-  input[type=file] { display: none; }
-  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
-  .badge-green { background: rgba(34,197,94,0.15); color: #22C55E; }
-  .badge-red { background: rgba(239,68,68,0.15); color: #EF4444; }
-  .badge-amber { background: rgba(245,158,11,0.15); color: #F59E0B; }
-  .badge-gray { background: rgba(148,163,184,0.1); color: #64748B; }
-  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
-  .stat { background: #0B0D14; border-radius: 10px; padding: 14px; text-align: center; }
-  .stat-num { font-size: 22px; font-weight: 700; }
-  .stat-label { font-size: 11px; color: #64748B; margin-top: 2px; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; padding: 10px 8px; color: #64748B; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid rgba(148,163,184,0.08); position: sticky; top: 0; background: #151823; }
-  td { padding: 8px; border-bottom: 1px solid rgba(148,163,184,0.04); vertical-align: top; }
-  .spinner { width: 18px; height: 18px; border: 2px solid rgba(59,130,246,0.3); border-top: 2px solid #3B82F6; border-radius: 50%; animation: spin .8s linear infinite; display: none; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .progress-bar { height: 4px; background: #0B0D14; border-radius: 4px; margin: 12px 0; overflow: hidden; display: none; }
-  .progress-fill { height: 100%; background: linear-gradient(90deg, #3B82F6, #6366F1); border-radius: 4px; transition: width .3s; width: 0; }
-  .filename { font-size: 12px; color: #64748B; margin-top: 4px; }
-  .checks-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px,1fr)); gap: 8px; margin-bottom: 16px; }
-  .check-item { background: #0B0D14; border-radius: 8px; padding: 8px 12px; font-size: 12px; color: #94A3B8; border-left: 3px solid #3B82F6; }
-  .detail-row { display: flex; gap: 16px; flex-wrap: wrap; }
-  .detail-tag { font-size: 11px; padding: 2px 8px; border-radius: 12px; background: rgba(148,163,184,0.08); }
-  @media (max-width: 640px) { .stats { grid-template-columns: repeat(2, 1fr); } table { font-size: 12px; } }
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0F1117;color:#E2E8F0;min-height:100vh}
+.container{max-width:960px;margin:0 auto;padding:32px 20px}
+h1{font-size:24px;font-weight:700;margin-bottom:4px;color:#F1F5F9}
+.sub{color:#64748B;font-size:14px;margin-bottom:24px}
+.tabs{display:flex;gap:4px;margin-bottom:24px;background:#151823;border-radius:10px;padding:4px}
+.tab{flex:1;padding:10px 16px;text-align:center;font-size:13px;font-weight:600;border-radius:8px;cursor:pointer;transition:all .15s;border:none;background:transparent;color:#64748B}
+.tab.active{background:#3B82F6;color:#fff}
+.card{background:#151823;border:1px solid rgba(148,163,184,0.08);border-radius:12px;padding:24px;margin-bottom:20px}
+textarea{width:100%;height:180px;background:#0B0D14;border:1px solid rgba(148,163,184,0.12);border-radius:8px;color:#E2E8F0;padding:14px;font-size:14px;font-family:monospace;resize:vertical;outline:none}
+textarea:focus{border-color:#3B82F6}
+.label{font-size:13px;font-weight:600;color:#94A3B8;margin-bottom:8px}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.btn{padding:10px 24px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;transition:all .15s;display:inline-flex;align-items:center;gap:8px}
+.btn-primary{background:#3B82F6;color:#fff}
+.btn-primary:hover{background:#2563EB}
+.btn-primary:disabled{opacity:.4;cursor:not-allowed}
+.btn-outline{background:transparent;color:#94A3B8;border:1px solid rgba(148,163,184,0.2)}
+.btn-outline:hover{border-color:#3B82F6;color:#3B82F6}
+.btn-success{background:#22C55E;color:#fff}
+.btn-success:hover{background:#16A34A}
+.btn-danger{background:#EF4444;color:#fff}
+.btn-danger:hover{background:#DC2626}
+.btn-sm{padding:6px 14px;font-size:12px}
+input[type=file]{display:none}
+.badge{display:inline-flex;padding:3px 8px;border-radius:20px;font-size:11px;font-weight:600}
+.badge-green{background:rgba(34,197,94,0.15);color:#22C55E}
+.badge-red{background:rgba(239,68,68,0.15);color:#EF4444}
+.badge-amber{background:rgba(245,158,11,0.15);color:#F59E0B}
+.badge-gray{background:rgba(148,163,184,0.1);color:#64748B}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+.stat{background:#0B0D14;border-radius:10px;padding:14px;text-align:center}
+.stat-num{font-size:22px;font-weight:700}
+.stat-label{font-size:11px;color:#64748B;margin-top:2px}
+.spinner{width:18px;height:18px;border:2px solid rgba(59,130,246,0.3);border-top:2px solid #3B82F6;border-radius:50%;animation:spin .8s linear infinite;display:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+.list-item{background:#0B0D14;border:1px solid rgba(148,163,184,0.08);border-radius:10px;overflow:hidden;margin-bottom:10px}
+.list-header{padding:16px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;transition:background .15s}
+.list-header:hover{background:rgba(59,130,246,0.05)}
+.list-name{font-size:14px;font-weight:600;color:#F1F5F9}
+.list-meta{font-size:12px;color:#64748B;margin-top:3px;display:flex;gap:16px;flex-wrap:wrap}
+.list-detail{border-top:1px solid rgba(148,163,184,0.08);padding:16px;display:none}
+.list-detail.open{display:block}
+.table-wrap{overflow-x:auto;max-height:600px;overflow-y:auto}
+table{width:100%;font-size:12px;border-collapse:collapse}
+th{text-align:left;padding:8px 10px;background:#0B0D14;color:#64748B;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.03em;border-bottom:1px solid rgba(148,163,184,0.1);white-space:nowrap;position:sticky;top:0}
+td{padding:7px 10px;border-bottom:1px solid rgba(148,163,184,0.04);vertical-align:middle;font-size:11px}
+tr:hover td{background:rgba(59,130,246,0.03)}
+.mark-cell{text-align:center;font-size:14px;width:32px}
+.toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:10px;font-size:13px;font-weight:600;z-index:100;display:none}
+.toast.success{background:rgba(34,197,94,0.9);color:#fff}
+.toast.error{background:rgba(239,68,68,0.9);color:#fff}
+@media(max-width:640px){.stats{grid-template-columns:repeat(2,1fr)}}
 </style>
 </head>
 <body>
 <div class="container">
-  <h1>Email Verifier</h1>
-  <p class="sub">14 checks — DNS, SMTP handshake, catch-all detection, breach lookup, and more</p>
-
-  <div class="card">
-    <div class="label">Enter email addresses (one per line, or comma-separated)</div>
-    <textarea id="emailInput" placeholder="email@example.com&#10;info@domain.com&#10;test@gmail.com"></textarea>
-    <div class="row" style="margin-top:12px">
-      <button class="btn btn-primary" id="verifyBtn" onclick="verify()">Verify</button>
-      <label class="btn btn-outline" for="csvUpload">Upload CSV</label>
-      <input type="file" id="csvUpload" accept=".csv" onchange="handleCsv(this)">
-      <div class="spinner" id="spinner"></div>
-    </div>
-    <div class="progress-bar" id="progressBar"><div class="progress-fill" id="progressFill"></div></div>
-    <div class="filename" id="filename"></div>
-  </div>
-
-  <div id="results"></div>
+<h1>Email Verifier</h1>
+<p class="sub">14 checks — SMTP handshake, catch-all detection, breach lookup, and more</p>
+<div class="tabs">
+<button class="tab active" id="tabVerify" onclick="switchTab('verify')">Verify</button>
+<button class="tab" id="tabLists" onclick="switchTab('lists')">Verified Lists</button>
 </div>
-
+<div id="verifyTab">
+<div class="card">
+<div class="label">Enter email addresses (one per line, or comma-separated)</div>
+<textarea id="emailInput" placeholder="email@example.com&#10;info@domain.com"></textarea>
+<div class="row" style="margin-top:12px">
+<button class="btn btn-primary" id="verifyBtn" onclick="verify()">Verify</button>
+<label class="btn btn-outline" for="csvUpload">Upload CSV</label>
+<input type="file" id="csvUpload" accept=".csv" onchange="handleCsv(this)">
+<div class="spinner" id="spinner"></div>
+</div>
+<div class="filename" id="filename"></div>
+<div style="margin-top:12px">
+<label class="btn btn-outline" for="csvUploadFull" style="font-size:13px">📄 Upload CSV &amp; Save as Verified List</label>
+<input type="file" id="csvUploadFull" accept=".csv" onchange="uploadAndVerify(this)">
+<span style="font-size:11px;color:#64748B;margin-left:8px">(keeps all original columns)</span>
+</div>
+</div>
+<div id="results"></div>
+</div>
+<div id="listsTab" style="display:none"><div id="listsContent"></div></div>
+</div>
+<div class="toast" id="toast"></div>
 <script>
 let lastResults = [];
-
+function smtpLabel(code, catchAll) {
+  if (code === 'quick' || code === '' || !code) return '🔍 DNS Only';
+  if (code === 'SKIPPED') return '⏭ Skipped';
+  if (code && code.startsWith('ERR:')) return '❌ Error';
+  if (catchAll && catchAll.catch_all) return '⚠️ Catch-All';
+  if (code === '250' || (code && code.startsWith('250 '))) return '✅ Deliverable';
+  if (code && code.startsWith('550')) return '❌ Bounce';
+  if (code && code.startsWith('450')) return '⏳ Temp Fail';
+  if (code && code.startsWith('554')) return '❌ Rejected';
+  if (code && code.startsWith('4')) return '⏳ Temp Fail';
+  if (code && code.startsWith('5')) return '❌ Rejected';
+  return code;
+}
+function toast(msg, type) {
+  const t = document.getElementById('toast');
+  t.innerHTML = msg; t.className = 'toast ' + type; t.style.display = 'block';
+  setTimeout(() => t.style.display = 'none', 3500);
+}
+function switchTab(name) {
+  document.getElementById('tabVerify').className = name === 'verify' ? 'tab active' : 'tab';
+  document.getElementById('tabLists').className = name === 'lists' ? 'tab active' : 'tab';
+  document.getElementById('verifyTab').style.display = name === 'verify' ? 'block' : 'none';
+  document.getElementById('listsTab').style.display = name === 'lists' ? 'block' : 'none';
+  if (name === 'lists') loadLists();
+}
 function handleCsv(input) {
   const file = input.files[0];
   if (!file) return;
   document.getElementById('filename').textContent = file.name;
   const reader = new FileReader();
   reader.onload = e => {
-    const text = e.target.result;
-    const lines = text.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('Email') && !l.startsWith(',') && l.includes('@'));
+    const lines = e.target.result.split('\n').map(l => l.trim()).filter(l => l && l.includes('@'));
     document.getElementById('emailInput').value = lines.join('\n');
   };
   reader.readAsText(file);
 }
-
 async function verify() {
   const input = document.getElementById('emailInput').value.trim();
   if (!input) return;
-
   const btn = document.getElementById('verifyBtn');
   const spinner = document.getElementById('spinner');
-  const bar = document.getElementById('progressBar');
-  const fill = document.getElementById('progressFill');
-
-  btn.disabled = true;
-  spinner.style.display = 'inline-block';
-  bar.style.display = 'block';
-
+  btn.disabled = true; spinner.style.display = 'inline-block';
   const emails = input.split(/[\n,]+/).map(e => e.trim()).filter(e => e);
-  const total = emails.length;
   const results = [];
-  let done = 0;
-
-  // Process one by one for live progress
-  for (const email of emails) {
+  for (let i = 0; i < emails.length; i++) {
     try {
-      const r = await fetch('/verify', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({emails: email})
-      });
-      const data = await r.json();
-      if (data.results && data.results[0]) {
-        results.push(data.results[0]);
-      }
-    } catch(e) {
-      results.push({email, valid: null, error: e.message});
-    }
-    done++;
-    fill.style.width = Math.round((done / total) * 100) + '%';
+      const r = await fetch('/verify', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({emails: emails[i]}) });
+      const d = await r.json();
+      if (d.results && d.results[0]) results.push(d.results[0]);
+    } catch(e) { results.push({email: emails[i], valid: null}); }
   }
-
-  // Aggregate summary
-  const valids = results.filter(r => r.valid === true).length;
-  const invalids = results.filter(r => r.valid === false).length;
-  const unknowns = results.filter(r => r.valid === null || r.valid === undefined).length;
-  const synErr = results.filter(r => !r.syntax_valid).length;
-
   lastResults = results;
-
-  spinner.style.display = 'none';
-  btn.disabled = false;
-
-  const div = document.getElementById('results');
-  div.innerHTML = renderResults(results, total, valids, invalids, unknowns, synErr);
+  spinner.style.display = 'none'; btn.disabled = false;
+  const v = results.filter(r => r.valid === true).length;
+  const iv = results.filter(r => r.valid === false).length;
+  const uk = results.length - v - iv;
+  document.getElementById('results').innerHTML = renderResults(results, v, iv, uk);
+  const validEmails = results.filter(r => r.valid === true || r.valid === null);
+  if (!validEmails.length) return;
+  const smtpProgress = document.createElement('div');
+  smtpProgress.innerHTML = '<div class="card" style="margin-top:12px;padding:16px"><div class="label">SMTP Deep Check on '+validEmails.length+' emails</div>' +
+    '<div style="display:flex;justify-content:space-between;font-size:11px;color:#64748B;margin-bottom:4px">' +
+    '<span id="smtpAutoText">0 / '+validEmails.length+'</span>' +
+    '<span id="smtpAutoPct">0%</span></div>' +
+    '<div style="background:#0B0D14;border-radius:6px;height:18px;overflow:hidden">' +
+    '<div id="smtpAutoBar" style="width:0%;height:100%;background:linear-gradient(90deg,#3B82F6,#22C55E);border-radius:6px;transition:width .3s ease"></div></div></div>';
+  document.getElementById('results').appendChild(smtpProgress);
+  for (let vi = 0; vi < validEmails.length; vi++) {
+    if (!document.getElementById('smtpAutoText')) break;
+    document.getElementById('smtpAutoText').textContent = vi + ' / ' + validEmails.length;
+    document.getElementById('smtpAutoPct').textContent = Math.round((vi/validEmails.length)*100) + '%';
+    document.getElementById('smtpAutoBar').style.width = Math.round((vi/validEmails.length)*100) + '%';
+    try {
+      const r = await fetch('/api/smtp-run', { method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({emails: [validEmails[vi].email]}) });
+      const txt = await r.text();
+      let dr;
+      try { dr = JSON.parse(txt); } catch(e) { continue; }
+      if (dr.results && dr.results[0]) {
+        const sr = dr.results[0];
+        validEmails[vi].valid = sr.valid;
+        validEmails[vi].smtp_status = sr.smtp_status;
+        validEmails[vi].smtp_time = sr.smtp_time;
+        validEmails[vi].catch_all = sr.catch_all;
+        validEmails[vi].mx = sr.mx;
+      }
+    } catch(e) {}
+  }
+  if (document.getElementById('smtpAutoText')) {
+    document.getElementById('smtpAutoText').textContent = validEmails.length+' / '+validEmails.length;
+    document.getElementById('smtpAutoPct').textContent = '100%';
+    document.getElementById('smtpAutoBar').style.width = '100%';
+  }
+  const p = document.getElementById('smtpAutoProgress');
+  if (p) p.remove();
+  const fv = results.filter(r => r.valid === true).length;
+  const fi = results.filter(r => r.valid === false).length;
+  const fu = results.length - fv - fi;
+  document.getElementById('results').innerHTML = renderResults(results, fv, fi, fu);
 }
-
-function renderResults(results, total, valid, invalid, unknown, synErr) {
-  let html = '';
-
-  // Stats
-  html += `<div class="stats">
-    <div class="stat"><div class="stat-num" style="color:#3B82F6">${total}</div><div class="stat-label">Total Checked</div></div>
-    <div class="stat"><div class="stat-num" style="color:#22C55E">${valid}</div><div class="stat-label">Valid</div></div>
-    <div class="stat"><div class="stat-num" style="color:#EF4444">${invalid}</div><div class="stat-label">Invalid</div></div>
-    <div class="stat"><div class="stat-num" style="color:#F59E0B">${unknown}</div><div class="stat-label">Unknown / Grey</div></div>
-  </div>`;
-
-  // Checks reference
-  html += `<div class="checks-grid">`;
-  const checks = ['RFC Syntax','MX Record','A Record Fallback','Disposable Detector','Role-Based Flag','SMTP Handshake','Dual RCPT (Catch-All)','SMTP VRFY','Response Timing','Gravatar Lookup','Breach Check (HIBP)','Typo Detection','Spam Trap Filter','Free Provider Flag'];
-  checks.forEach(c => { html += `<div class="check-item">${c}</div>`; });
-  html += `</div>`;
-
-  // Download button
-  html += `<div style="margin-bottom:12px"><button class="btn btn-outline" onclick="downloadCsv()">Download CSV</button></div>`;
-
-  // Table
-  html += `<div style="overflow-x:auto"><table>
-    <tr><th>Email</th><th>Status</th><th>SMTP</th><th>Catch-All</th><th>Breach</th><th>Gravatar</th><th>Disposable</th><th>Role</th><th>Typo</th></tr>`;
-
+function renderResults(results, valid, invalid, unknown) {
+  let html = '<div class="stats">' +
+    '<div class="stat"><div class="stat-num" style="color:#3B82F6">'+results.length+'</div><div class="stat-label">Total</div></div>' +
+    '<div class="stat"><div class="stat-num" style="color:#22C55E">'+valid+'</div><div class="stat-label">Valid</div></div>' +
+    '<div class="stat"><div class="stat-num" style="color:#EF4444">'+invalid+'</div><div class="stat-label">Invalid</div></div>' +
+    '<div class="stat"><div class="stat-num" style="color:#F59E0B">'+unknown+'</div><div class="stat-label">Unknown</div></div></div>';
+  html += '<div style="margin-bottom:12px"><button class="btn btn-outline btn-sm" onclick="dl()">Download CSV</button></div>';
+  html += '<div class="table-wrap"><table><thead><tr><th>Email</th><th>Status</th><th>MX</th><th>SMTP</th><th>Catch</th><th>Breach</th><th>Grav</th><th>Spam</th></tr></thead><tbody>';
   results.forEach(r => {
-    let statusClass, statusText;
-    if (r.valid === true) { statusClass = 'badge-green'; statusText = 'Valid'; }
-    else if (r.valid === false) { statusClass = 'badge-red'; statusText = 'Invalid'; }
-    else { statusClass = 'badge-amber'; statusText = 'Unknown'; }
-
-    if (!r.syntax_valid) {
-      statusClass = 'badge-red'; statusText = 'Bad Syntax';
-    }
-
-    const smtp = r.smtp_status || '-';
-    const catchAll = r.dual_rcpt && r.dual_rcpt.catch_all ? 'Yes' : 'No';
-    const breach = r.hibp_count > 0 ? `${r.hibp_count} leaks` : (r.hibp_count === 0 ? 'No' : '?');
-    const gravatar = r.gravatar ? 'Yes' : 'No';
-    const disposable = r.disposable ? 'Yes' : 'No';
-    const role = r.role_based ? 'Yes' : 'No';
-    const typo = r.typo && r.typo.has_typo ? `${r.typo.suggestion}` : 'No';
-
-    const email = escapeHtml(r.email);
-    html += `<tr>
-      <td style="word-break:break-all;font-family:monospace;font-size:12px">${email}</td>
-      <td><span class="badge ${statusClass}">${statusText}</span></td>
-      <td><span class="detail-tag">${smtp}</span></td>
-      <td>${catchAll}</td>
-      <td>${breach}</td>
-      <td>${gravatar}</td>
-      <td>${disposable}</td>
-      <td>${role}</td>
-      <td>${typo}</td>
-    </tr>`;
+    let cls = 'badge-amber', txt = 'Unknown';
+    if (r.valid === true) { cls = 'badge-green'; txt = 'Valid'; }
+    else if (r.valid === false) { cls = 'badge-red'; txt = 'Invalid'; }
+    if (!r.syntax_valid) { cls = 'badge-red'; txt = 'Bad Syntax'; }
+    const e = String(r.email).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    const ca = r.dual_rcpt && r.dual_rcpt.catch_all ? 'Yes' : 'No';
+    const hb = r.hibp_count > 0 ? r.hibp_count+' leaks' : (r.hibp_count === 0 ? 'No' : '?');
+    html += '<tr><td style="font-family:monospace;font-size:11px">'+e+'</td><td><span class="badge '+cls+'">'+txt+'</span></td><td>'+(r.mx||'-')+'</td><td>'+smtpLabel(r.smtp_status, r.catch_all)+'</td><td>'+ca+'</td><td>'+hb+'</td><td>'+(r.gravatar?'Y':'N')+'</td><td>'+(r.spam_trap?'Y':'N')+'</td></tr>';
   });
-
-  html += `</table></div>`;
+  html += '</tbody></table></div>';
   return html;
 }
-
-function escapeHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-
-function downloadCsv() {
-  fetch('/download', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({results: lastResults})
-  }).then(r => r.text()).then(csv => {
-    const blob = new Blob([csv], {type: 'text/csv'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = 'verification_results.csv'; a.click();
-    URL.revokeObjectURL(url);
+function dl() {
+  fetch('/download', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({results: lastResults}) })
+  .then(r => r.text()).then(csv => {
+    const b = new Blob([csv], {type:'text/csv'});
+    const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'verification_results.csv'; a.click();
   });
+}
+async function uploadAndVerify(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('list_name', file.name.replace(/\.csv$/i,''));
+  const btn = document.getElementById('verifyBtn');
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/upload-and-verify', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (d.success) {
+      toast('✅ Saved "'+d.list_name+'" — '+d.valid+' valid, '+d.invalid+' invalid', 'success');
+      document.getElementById('results').innerHTML = '<div class="stats">' +
+        '<div class="stat"><div class="stat-num" style="color:#3B82F6">'+d.total_emails+'</div><div class="stat-label">Emails</div></div>' +
+        '<div class="stat"><div class="stat-num" style="color:#22C55E">'+d.valid+'</div><div class="stat-label">Valid</div></div>' +
+        '<div class="stat"><div class="stat-num" style="color:#EF4444">'+d.invalid+'</div><div class="stat-label">Invalid</div></div>' +
+        '<div class="stat"><div class="stat-num" style="color:#F59E0B">'+d.unknown+'</div><div class="stat-label">Unknown</div></div></div>' +
+        '<p style="font-size:13px;color:#64748B">Saved. Go to <a href="#" onclick="switchTab(\'lists\');return false" style="color:#3B82F6">Verified Lists</a> to view details.</p>';
+    } else toast('❌ '+(d.error||'Failed'), 'error');
+  } catch(e) { toast('❌ '+e.message, 'error'); }
+  btn.disabled = false; input.value = '';
+}
+let openListId = null;
+async function loadLists() {
+  const div = document.getElementById('listsContent');
+  div.innerHTML = '<div style="text-align:center;padding:40px"><div class="spinner" style="display:inline-block"></div></div>';
+  try {
+    const r = await fetch('/api/verified-lists');
+    const d = await r.json();
+    const lists = d.lists || [];
+    if (!lists.length) {
+      div.innerHTML = '<div style="text-align:center;padding:48px;color:#64748B"><div style="font-size:48px;margin-bottom:12px">📋</div><h3 style="color:#94A3B8">No verified lists yet</h3><p style="font-size:13px">Upload a CSV on the Verify tab</p><button class="btn btn-primary" onclick="switchTab(\'verify\')" style="margin-top:16px">Go to Verify</button></div>';
+      return;
+    }
+    let html = '<div class="row" style="justify-content:space-between;margin-bottom:16px">' +
+      '<span style="color:#F1F5F9;font-weight:600">'+lists.length+' lists</span>' +
+      '<label class="btn btn-outline btn-sm" for="csvUploadFull2">+ Upload New</label>' +
+      '<input type="file" id="csvUploadFull2" accept=".csv" onchange="uploadAndVerify(this)" style="display:none"></div>';
+    for (const l of lists) {
+      const safe = String(l.list_name).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+      const dt = new Date(l.verified_at).toLocaleString();
+      const arrow = l.id === openListId ? '▼' : '▶';
+      const uk = l.total_emails - l.valid_count - l.invalid_count;
+      const smtpDone = l.smtp_done ? ' · <span style="color:#22C55E">🔍 SMTP ✅</span>' : ' · <span style="color:#64748B">🔍 SMTP</span>';
+      html += '<div class="list-item" id="list-'+l.id+'">' +
+        '<div class="list-header" onclick="toggleDetail(\''+l.id+'\')">' +
+        '<div><div class="list-name">'+arrow+' '+safe+'</div>' +
+        '<div class="list-meta">📅 '+dt+' · 📄 '+l.total_rows+' rows · 📧 '+l.total_emails+' emails · ' +
+        '<span style="color:#22C55E">✅ '+l.valid_count+'</span> · ' +
+        '<span style="color:#EF4444">❌ '+l.invalid_count+'</span> · ' +
+        '<span style="color:#64748B">❓ '+uk+'</span>'+smtpDone+'</div></div>' +
+        '<div style="display:flex;gap:8px" onclick="event.stopPropagation()">' +
+        '<button class="btn btn-success btn-sm" onclick="window.open(\'/api/verified-lists/'+l.id+'/download\',\'_blank\')">All</button>' +
+'<button class="btn btn-outline btn-sm" onclick="window.open(\'/api/verified-lists/'+l.id+'/download-deliverable\',\'_blank\')">Deliverable</button>' +
+        '<button class="btn btn-danger btn-sm" onclick="delList(\''+l.id+'\')">Delete</button></div>' +
+        '</div><div class="list-detail" id="detail-'+l.id+'"></div></div>';
+    }
+    div.innerHTML = html;
+    if (openListId) toggleDetail(openListId, true);
+  } catch(e) { div.innerHTML = '<div style="text-align:center;padding:48px;color:#EF4444">Error: '+e.message+'</div>'; }
+}
+async function toggleDetail(listId, silent) {
+  const detail = document.getElementById('detail-'+listId);
+  if (!detail) return;
+  const isOpen = detail.classList.contains('open');
+  document.querySelectorAll('.list-detail.open').forEach(el => el.classList.remove('open'));
+  document.querySelectorAll('.list-name').forEach(el => {
+    if (el.textContent.startsWith('▼') || el.textContent.startsWith('▶'))
+      el.textContent = '▶ ' + el.textContent.slice(2);
+  });
+  if (isOpen) { openListId = null; return; }
+  detail.classList.add('open');
+  const header = document.querySelector('#list-'+listId+' .list-name');
+  if (header) header.textContent = '▼ ' + header.textContent.slice(2);
+  openListId = listId;
+  if (detail.children.length > 0) return;
+  detail.innerHTML = '<div style="text-align:center;padding:24px"><div class="spinner" style="display:inline-block"></div></div>';
+  try {
+    const r = await fetch('/api/verified-lists/'+listId+'/detail');
+    const d = await r.json();
+    let vc = 0, ic = 0, uc = 0;
+    for (const row of d.rows) {
+      const vr = row.verification;
+      const ev = row.original[d.email_col] || '';
+      if (!ev.trim()) uc++;
+      else if (!vr || vr.valid === undefined || vr.valid === null) uc++;
+      else if (vr.valid === true) vc++;
+      else if (vr.valid === false) ic++;
+    }
+    let html = '<div style="display:flex;gap:16px;margin-bottom:12px;font-size:12px;flex-wrap:wrap;align-items:center">' +
+      '<span style="color:#64748B">Valid: <span style="color:#22C55E">'+vc+'</span></span>' +
+      '<span style="color:#64748B">Invalid: <span style="color:#EF4444">'+ic+'</span></span>' +
+      '<span style="color:#64748B">Unknown: <span style="color:#F59E0B">'+uc+'</span></span>' +
+      ' <button class="btn btn-success btn-sm" id="smtpListBtn-'+listId+'" onclick="runListSmtp(\''+listId+'\')">🔍 Run SMTP Check</button>' +
+      '</div>';
+    html += '<div class="table-wrap"><table><thead><tr><th class="mark-cell"></th>';
+    for (const h of d.headers) {
+      html += '<th>'+String(h).replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</th>';
+    }
+    html += '<th>Status</th><th>SMTP</th><th>Role</th><th>Spam</th><th>Catch</th></tr></thead><tbody>';
+    for (const row of d.rows) {
+      const vr = row.verification;
+      const ev = row.original[d.email_col] || '';
+      const valid = vr ? vr.valid : null;
+      let mark = '', badge = '';
+      if (!ev.trim()) { mark = '—'; badge = '<span class="badge badge-gray">No Email</span>'; }
+      else if (valid === true) { mark = '✅'; badge = '<span class="badge badge-green">Valid</span>'; }
+      else if (valid === false) { mark = '❌'; badge = '<span class="badge badge-red">Invalid</span>'; }
+      else { mark = '❓'; badge = '<span class="badge badge-amber">Unknown</span>'; }
+      const smtp = vr && vr.smtp_status ? smtpLabel(vr.smtp_status, vr.catch_all) : (vr && vr.valid !== null ? smtpLabel('quick') : '-');
+      const role = vr && vr.role_based ? 'Y' : (vr ? 'N' : '-');
+      const st = vr && vr.spam_trap ? 'Y' : (vr ? 'N' : '-');
+      const ca = vr && vr.catch_all && vr.catch_all.catch_all ? 'Y' : (vr && vr.catch_all ? 'N' : '-');
+      html += '<tr><td class="mark-cell">'+mark+'</td>';
+      for (const h of d.headers) {
+        const val = String(row.original[h] || '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+        html += '<td>'+val+'</td>';
+      }
+      html += '<td>'+badge+'</td><td style="font-size:10px;color:#64748B">'+smtp+'</td><td>'+role+'</td><td>'+st+'</td><td>'+ca+'</td></tr>';
+    }
+    html += '</tbody></table></div>';
+    detail.innerHTML = html;
+  } catch(e) { detail.innerHTML = '<div style="color:#EF4444;padding:12px">Error: '+e.message+'</div>'; }
+}
+async function runListSmtp(listId) {
+  const btn = document.getElementById('smtpListBtn-'+listId);
+  if (!btn) { toast('❌ Button not found', 'error'); return; }
+  btn.disabled = true; btn.textContent = '⏳ Loading...';
+  const detail = document.getElementById('detail-'+listId);
+  try {
+    const r = await fetch('/api/verified-lists/'+listId+'/detail');
+    const d = await r.json();
+    if (!d.rows || !d.rows.length) { btn.textContent = '🔍 Run SMTP Check'; btn.disabled = false; return; }
+    const toCheck = [];
+    for (const row of d.rows) {
+      const e = (row.original.Email || row.original.email || '').toLowerCase();
+      const vr = row.verification;
+      if (e && (vr.valid === true || vr.valid === null)) toCheck.push(e);
+    }
+    if (!toCheck.length) { toast('ℹ️ No emails to SMTP-check', 'info'); btn.textContent = '🔍 Run SMTP Check'; btn.disabled = false; return; }
+    detail.insertAdjacentHTML('afterbegin',
+      '<div id="listSmtpProgress" style="padding:12px 0"><div style="display:flex;justify-content:space-between;font-size:11px;color:#64748B;margin-bottom:4px">' +
+      '<span id="listSmtpText">0 / '+toCheck.length+'</span>' +
+      '<span id="listSmtpPct">0%</span></div>' +
+      '<div style="background:#0B0D14;border-radius:6px;height:18px;overflow:hidden">' +
+      '<div id="listSmtpBar" style="width:0%;height:100%;background:linear-gradient(90deg,#3B82F6,#22C55E);border-radius:6px;transition:width .3s ease"></div></div></div>');
+    for (let i = 0; i < toCheck.length; i++) {
+      btn.textContent = (i+1) + ' / ' + toCheck.length;
+      const pct = Math.round(((i+1)/toCheck.length)*100);
+      if (document.getElementById('listSmtpText')) document.getElementById('listSmtpText').textContent = (i+1) + ' / ' + toCheck.length;
+      if (document.getElementById('listSmtpPct')) document.getElementById('listSmtpPct').textContent = pct + '%';
+      if (document.getElementById('listSmtpBar')) document.getElementById('listSmtpBar').style.width = pct + '%';
+      try {
+        await fetch('/api/list-smtp-check/'+listId, { method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({emails: [toCheck[i]]}) });
+      } catch(e) {}
+    }
+    if (document.getElementById('listSmtpProgress')) document.getElementById('listSmtpProgress').remove();
+    detail.innerHTML = '';
+    toggleDetail(listId, true);
+    toast('✅ SMTP check complete', 'success');
+    btn.textContent = '✅ SMTP Done';
+  } catch(e) {
+    toast('❌ SMTP check failed: '+e.message, 'error');
+    btn.textContent = '🔍 Run SMTP Check'; btn.disabled = false;
+  }
+}
+async function delList(id) {
+  if (!confirm('Delete this list?')) return;
+  try { await fetch('/api/verified-lists/'+id, {method:'DELETE'}); loadLists(); }
+  catch(e) { toast('❌ '+e.message, 'error'); }
 }
 </script>
 </body>
