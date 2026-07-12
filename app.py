@@ -344,5 +344,126 @@ def download():
         w.writerow([r.get('email'), status, r.get('mx',''), r.get('smtp_status',''), 'Yes' if r.get('catch_all') else 'No', 'Yes' if r.get('role_based') else 'No', 'Yes' if r.get('spam_trap') else 'No'])
     return Response(output.getvalue(), mimetype='text/csv', headers={'Content-Disposition': 'attachment; filename=results.csv'})
 
+PLUSVIBE_BASE = 'https://api.plusvibe.ai/api/v1'
+APP_URL = 'https://app.plusvibe.ai'
+
+@app.route('/api/plusvibe/auth', methods=['POST'])
+def plusvibe_auth():
+    """Validate PlusVibe API key and return workspaces."""
+    data = request.get_json(silent=True) or {}
+    api_key = (data.get('api_key') or '').strip()
+    if not api_key:
+        return jsonify({'success': False, 'error': 'API key required'}), 400
+    try:
+        r = requests.get(f'{PLUSVIBE_BASE}/authenticate',
+            headers={'x-api-key': api_key}, timeout=10)
+        if r.status_code != 200:
+            return jsonify({'success': False, 'error': f'Auth failed ({r.status_code})'}), 400
+        d = r.json()
+        if d.get('status') != 'success':
+            return jsonify({'success': False, 'error': d.get('message', 'Auth failed')}), 400
+        return jsonify({'success': True, 'workspaces': d.get('workspaces', [])})
+    except requests.exceptions.Timeout:
+        return jsonify({'success': False, 'error': 'Connection timed out'}), 504
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/push-to-plusvibe/<list_id>', methods=['POST'])
+def push_to_plusvibe(list_id):
+    """Push deliverable emails from a verified list to PlusVibe campaign."""
+    data = request.get_json(silent=True) or {}
+    api_key = (data.get('api_key') or '').strip()
+    workspace_id = (data.get('workspace_id') or '').strip()
+    campaign_name = (data.get('campaign_name') or '').strip() or 'Email Verifier Import'
+    if not api_key or not workspace_id:
+        return jsonify({'success': False, 'error': 'api_key and workspace_id required'}), 400
+    
+    db = get_db()
+    row = db.execute('SELECT * FROM verified_lists WHERE id = ?', (list_id,)).fetchone()
+    if not row:
+        return jsonify({'success': False, 'error': 'List not found'}), 404
+    
+    headers = json.loads(row['original_csv_headers'])
+    original_rows = json.loads(row['original_rows'])
+    vresults = json.loads(row['verification_results'])
+    email_col = next((c for c in ['Email', 'email', 'EMAIL', 'e-mail', 'E-mail'] if c in headers), headers[0])
+    
+    # Collect deliverable emails
+    deliverable_emails = []
+    for r in original_rows:
+        raw = strip_quotes(r.get(email_col, '').strip().lower())
+        vr = vresults.get(raw, {})
+        if vr.get('valid') is True:
+            ca = vr.get('catch_all')
+            ss = vr.get('smtp_status', '')
+            if ca and ca.get('catch_all'):
+                continue
+            if ss and ss.startswith('550'):
+                continue
+            deliverable_emails.append({'email': raw})
+    
+    if not deliverable_emails:
+        return jsonify({'success': False, 'error': 'No deliverable emails found'}), 400
+    
+    # Step 1: Create campaign in PlusVibe
+    try:
+        cr = requests.post(f'{PLUSVIBE_BASE}/campaign/add/campaign',
+            headers={'x-api-key': api_key, 'Content-Type': 'application/json'},
+            json={'workspace_id': workspace_id, 'camp_name': campaign_name},
+            timeout=15)
+        if cr.status_code != 200:
+            body = cr.text[:200]
+            return jsonify({'success': False, 'error': f'Campaign creation failed ({cr.status_code}): {body}'}), 502
+        campaign_data = cr.json()
+        campaign_id = campaign_data.get('id')
+        if not campaign_id:
+            return jsonify({'success': False, 'error': 'No campaign_id in response'}), 502
+    except requests.exceptions.Timeout:
+        return jsonify({'success': False, 'error': 'Campaign creation timed out'}), 504
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Campaign creation: {str(e)}'}), 502
+    
+    # Step 2: Add leads in batches of 100
+    batch_size = 100
+    total = len(deliverable_emails)
+    added = 0
+    errors = []
+    for i in range(0, total, batch_size):
+        batch = deliverable_emails[i:i+batch_size]
+        try:
+            lr = requests.post(f'{PLUSVIBE_BASE}/lead/add',
+                headers={'x-api-key': api_key, 'Content-Type': 'application/json'},
+                json={
+                    'workspace_id': workspace_id,
+                    'campaign_id': campaign_id,
+                    'skip_if_in_workspace': True,
+                    'leads': batch
+                },
+                timeout=30)
+            if lr.status_code == 200:
+                added += len(batch)
+            else:
+                errors.append(f'Batch {i//batch_size}: {lr.status_code}')
+        except Exception as e:
+            errors.append(f'Batch {i//batch_size}: {str(e)[:60]}')
+    
+    # Activate campaign
+    try:
+        requests.post(f'{PLUSVIBE_BASE}/campaign/activate',
+            headers={'x-api-key': api_key, 'Content-Type': 'application/json'},
+            json={'workspace_id': workspace_id, 'campaign_id': campaign_id},
+            timeout=10)
+    except Exception:
+        pass  # Activate is optional, don't fail
+    
+    return jsonify({
+        'success': True,
+        'campaign_id': campaign_id,
+        'campaign_url': f'{APP_URL}/v2/campaigns/?workspace_id={workspace_id}&campaign_id={campaign_id}',
+        'total_emails': total,
+        'added': added,
+        'errors': errors if errors else None
+    })
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5002, debug=False)
