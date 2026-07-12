@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Email Verifier</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0F1117; color: #E2E8F0; min-height: 100vh; }
+  .container { max-width: 960px; margin: 0 auto; padding: 32px 20px; }
+  h1 { font-size: 24px; font-weight: 700; margin-bottom: 4px; color: #F1F5F9; }
+  .sub { color: #64748B; font-size: 14px; margin-bottom: 24px; }
+  .card { background: #151823; border: 1px solid rgba(148,163,184,0.08); border-radius: 12px; padding: 24px; margin-bottom: 20px; }
+  textarea { width: 100%; height: 180px; background: #0B0D14; border: 1px solid rgba(148,163,184,0.12); border-radius: 8px; color: #E2E8F0; padding: 14px; font-size: 14px; font-family: 'SFMono-Regular', Consolas, monospace; resize: vertical; outline: none; }
+  textarea:focus { border-color: #3B82F6; }
+  .label { font-size: 13px; font-weight: 600; color: #94A3B8; margin-bottom: 8px; }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .btn { padding: 10px 24px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: all .15s; display: inline-flex; align-items: center; gap: 8px; }
+  .btn-primary { background: #3B82F6; color: #fff; }
+  .btn-primary:hover { background: #2563EB; }
+  .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-outline { background: transparent; color: #94A3B8; border: 1px solid rgba(148,163,184,0.2); }
+  .btn-outline:hover { border-color: #3B82F6; color: #3B82F6; }
+  input[type=file] { display: none; }
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .badge-green { background: rgba(34,197,94,0.15); color: #22C55E; }
+  .badge-red { background: rgba(239,68,68,0.15); color: #EF4444; }
+  .badge-amber { background: rgba(245,158,11,0.15); color: #F59E0B; }
+  .badge-gray { background: rgba(148,163,184,0.1); color: #64748B; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+  .stat { background: #0B0D14; border-radius: 10px; padding: 14px; text-align: center; }
+  .stat-num { font-size: 22px; font-weight: 700; }
+  .stat-label { font-size: 11px; color: #64748B; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 10px 8px; color: #64748B; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid rgba(148,163,184,0.08); position: sticky; top: 0; background: #151823; }
+  td { padding: 8px; border-bottom: 1px solid rgba(148,163,184,0.04); vertical-align: top; }
+  .spinner { width: 18px; height: 18px; border: 2px solid rgba(59,130,246,0.3); border-top: 2px solid #3B82F6; border-radius: 50%; animation: spin .8s linear infinite; display: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .progress-bar { height: 4px; background: #0B0D14; border-radius: 4px; margin: 12px 0; overflow: hidden; display: none; }
+  .progress-fill { height: 100%; background: linear-gradient(90deg, #3B82F6, #6366F1); border-radius: 4px; transition: width .3s; width: 0; }
+  .filename { font-size: 12px; color: #64748B; margin-top: 4px; }
+  .checks-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px,1fr)); gap: 8px; margin-bottom: 16px; }
+  .check-item { background: #0B0D14; border-radius: 8px; padding: 8px 12px; font-size: 12px; color: #94A3B8; border-left: 3px solid #3B82F6; }
+  .detail-row { display: flex; gap: 16px; flex-wrap: wrap; }
+  .detail-tag { font-size: 11px; padding: 2px 8px; border-radius: 12px; background: rgba(148,163,184,0.08); }
+  @media (max-width: 640px) { .stats { grid-template-columns: repeat(2, 1fr); } table { font-size: 12px; } }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Email Verifier</h1>
+  <p class="sub">14 checks — DNS, SMTP handshake, catch-all detection, breach lookup, and more</p>
+
+  <div class="card">
+    <div class="label">Enter email addresses (one per line, or comma-separated)</div>
+    <textarea id="emailInput" placeholder="email@example.com&#10;info@domain.com&#10;test@gmail.com"></textarea>
+    <div class="row" style="margin-top:12px">
+      <button class="btn btn-primary" id="verifyBtn" onclick="verify()">Verify</button>
+      <label class="btn btn-outline" for="csvUpload">Upload CSV</label>
+      <input type="file" id="csvUpload" accept=".csv" onchange="handleCsv(this)">
+      <div class="spinner" id="spinner"></div>
+    </div>
+    <div class="progress-bar" id="progressBar"><div class="progress-fill" id="progressFill"></div></div>
+    <div class="filename" id="filename"></div>
+  </div>
+
+  <div id="results"></div>
+</div>
+
+<script>
+let lastResults = [];
+
+function handleCsv(input) {
+  const file = input.files[0];
+  if (!file) return;
+  document.getElementById('filename').textContent = file.name;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const text = e.target.result;
+    const lines = text.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('Email') && !l.startsWith(',') && l.includes('@'));
+    document.getElementById('emailInput').value = lines.join('\n');
+  };
+  reader.readAsText(file);
+}
+
+async function verify() {
+  const input = document.getElementById('emailInput').value.trim();
+  if (!input) return;
+
+  const btn = document.getElementById('verifyBtn');
+  const spinner = document.getElementById('spinner');
+  const bar = document.getElementById('progressBar');
+  const fill = document.getElementById('progressFill');
+
+  btn.disabled = true;
+  spinner.style.display = 'inline-block';
+  bar.style.display = 'block';
+
+  const emails = input.split(/[\n,]+/).map(e => e.trim()).filter(e => e);
+  const total = emails.length;
+  const results = [];
+  let done = 0;
+
+  // Process one by one for live progress
+  for (const email of emails) {
+    try {
+      const r = await fetch('/verify', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({emails: email})
+      });
+      const data = await r.json();
+      if (data.results && data.results[0]) {
+        results.push(data.results[0]);
+      }
+    } catch(e) {
+      results.push({email, valid: null, error: e.message});
+    }
+    done++;
+    fill.style.width = Math.round((done / total) * 100) + '%';
+  }
+
+  // Aggregate summary
+  const valids = results.filter(r => r.valid === true).length;
+  const invalids = results.filter(r => r.valid === false).length;
+  const unknowns = results.filter(r => r.valid === null || r.valid === undefined).length;
+  const synErr = results.filter(r => !r.syntax_valid).length;
+
+  lastResults = results;
+
+  spinner.style.display = 'none';
+  btn.disabled = false;
+
+  const div = document.getElementById('results');
+  div.innerHTML = renderResults(results, total, valids, invalids, unknowns, synErr);
+}
+
+function renderResults(results, total, valid, invalid, unknown, synErr) {
+  let html = '';
+
+  // Stats
+  html += `<div class="stats">
+    <div class="stat"><div class="stat-num" style="color:#3B82F6">${total}</div><div class="stat-label">Total Checked</div></div>
+    <div class="stat"><div class="stat-num" style="color:#22C55E">${valid}</div><div class="stat-label">Valid</div></div>
+    <div class="stat"><div class="stat-num" style="color:#EF4444">${invalid}</div><div class="stat-label">Invalid</div></div>
+    <div class="stat"><div class="stat-num" style="color:#F59E0B">${unknown}</div><div class="stat-label">Unknown / Grey</div></div>
+  </div>`;
+
+  // Checks reference
+  html += `<div class="checks-grid">`;
+  const checks = ['RFC Syntax','MX Record','A Record Fallback','Disposable Detector','Role-Based Flag','SMTP Handshake','Dual RCPT (Catch-All)','SMTP VRFY','Response Timing','Gravatar Lookup','Breach Check (HIBP)','Typo Detection','Spam Trap Filter','Free Provider Flag'];
+  checks.forEach(c => { html += `<div class="check-item">${c}</div>`; });
+  html += `</div>`;
+
+  // Download button
+  html += `<div style="margin-bottom:12px"><button class="btn btn-outline" onclick="downloadCsv()">Download CSV</button></div>`;
+
+  // Table
+  html += `<div style="overflow-x:auto"><table>
+    <tr><th>Email</th><th>Status</th><th>SMTP</th><th>Catch-All</th><th>Breach</th><th>Gravatar</th><th>Disposable</th><th>Role</th><th>Typo</th></tr>`;
+
+  results.forEach(r => {
+    let statusClass, statusText;
+    if (r.valid === true) { statusClass = 'badge-green'; statusText = 'Valid'; }
+    else if (r.valid === false) { statusClass = 'badge-red'; statusText = 'Invalid'; }
+    else { statusClass = 'badge-amber'; statusText = 'Unknown'; }
+
+    if (!r.syntax_valid) {
+      statusClass = 'badge-red'; statusText = 'Bad Syntax';
+    }
+
+    const smtp = r.smtp_status || '-';
+    const catchAll = r.dual_rcpt && r.dual_rcpt.catch_all ? 'Yes' : 'No';
+    const breach = r.hibp_count > 0 ? `${r.hibp_count} leaks` : (r.hibp_count === 0 ? 'No' : '?');
+    const gravatar = r.gravatar ? 'Yes' : 'No';
+    const disposable = r.disposable ? 'Yes' : 'No';
+    const role = r.role_based ? 'Yes' : 'No';
+    const typo = r.typo && r.typo.has_typo ? `${r.typo.suggestion}` : 'No';
+
+    const email = escapeHtml(r.email);
+    html += `<tr>
+      <td style="word-break:break-all;font-family:monospace;font-size:12px">${email}</td>
+      <td><span class="badge ${statusClass}">${statusText}</span></td>
+      <td><span class="detail-tag">${smtp}</span></td>
+      <td>${catchAll}</td>
+      <td>${breach}</td>
+      <td>${gravatar}</td>
+      <td>${disposable}</td>
+      <td>${role}</td>
+      <td>${typo}</td>
+    </tr>`;
+  });
+
+  html += `</table></div>`;
+  return html;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function downloadCsv() {
+  fetch('/download', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({results: lastResults})
+  }).then(r => r.text()).then(csv => {
+    const blob = new Blob([csv], {type: 'text/csv'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'verification_results.csv'; a.click();
+    URL.revokeObjectURL(url);
+  });
+}
+</script>
+</body>
+</html>
