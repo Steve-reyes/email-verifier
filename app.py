@@ -437,7 +437,7 @@ def push_to_plusvibe(list_id):
     return jsonify({
         'success': True,
         'campaign_id': campaign_id,
-        'campaign_url': f'{APP_URL}/v2/campaigns/?workspace_id={workspace_id}&campaign_id={campaign_id}',
+        'campaign_url': f'{APP_URL}/v2/lists/?workspace_id={workspace_id}',
         'total_emails': total,
         'added': added,
         'errors': errors if errors else None
