@@ -189,7 +189,8 @@ class SMTPVerifyHandler(BaseHTTPRequestHandler):
                     ca = catch_all_test(mx, email)
                     result['catch_all'] = ca
                     if ca.get('catch_all'):
-                        result['valid'] = None  # catch-all — can't verify individual
+                        # Catch-all but SMTP 250 — email will deliver. Keep valid=True.
+                        result['valid'] = True
                         return self._json_response(200, result)
                 except Exception:
                     pass

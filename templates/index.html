@@ -394,7 +394,7 @@ async function delList(id) {
   try { await fetch('/api/verified-lists/'+id, {method:'DELETE'}); loadLists(); }
   catch(e) { toast('❌ '+e.message, 'error'); }
 }
-// PlusVibe push — one click
+// PlusVibe push — one click campaign push (API key, no prompt)
 async function pushToPlusVibe(listId) {
   const btn = document.getElementById('pvPushBtn-'+listId);
   if (!btn) { toast('❌ Button not found', 'error'); return; }
@@ -406,7 +406,7 @@ async function pushToPlusVibe(listId) {
     '<div style="background:#0B0D14;border-radius:6px;height:18px;overflow:hidden">' +
     '<div id="pvProgressBar" style="width:0%;height:100%;background:linear-gradient(90deg,#8B5CF6,#6366F1);border-radius:6px;transition:width .3s ease"></div></div></div>');
   try {
-    const r = await fetch('/api/push-to-plusvibe/'+listId, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' });
+    const r = await fetch('/api/push-to-plusvibe/'+listId, { method: 'POST' });
     const d = await r.json();
     if (document.getElementById('pvProgressText')) document.getElementById('pvProgressText').textContent = 'Done';
     if (document.getElementById('pvProgressPct')) document.getElementById('pvProgressPct').textContent = '100%';
@@ -417,7 +417,7 @@ async function pushToPlusVibe(listId) {
       if (p) p.remove();
     }, 3000);
     btn.textContent = '✅ Pushed';
-    toast('✅ '+d.added+' leads pushed · <a href="'+d.campaign_url+'" target="_blank" style="color:white;text-decoration:underline">Open PlusVibe</a>', 'success');
+    toast('✅ '+d.added+' leads pushed · <a href="'+d.campaign_url+'" target="_blank" style="color:white;text-decoration:underline">Open PlusVibe Campaigns</a>', 'success');
   } catch(e) {
     toast('❌ '+e.message, 'error');
     btn.textContent = '🚀 Push to PlusVibe'; btn.disabled = false;
