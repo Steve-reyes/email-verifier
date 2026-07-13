@@ -171,6 +171,10 @@ def verify_one_light(email):
     cd = domain.lower().replace('www.', '')
     for lq in LOW_QUALITY_DOMAINS:
         if cd == lq or cd.endswith('.'+lq): result['low_quality'] = True; break
+    # Platform/directory domains — not real business emails
+    if cd in PLATFORM_DOMAINS or any(cd.endswith('.'+p) for p in PLATFORM_DOMAINS):
+        result['valid'] = False
+        return result
     cached = _cached_dns(domain)
     result['mx'] = cached['mx'] if cached['mx'] != 'NO_MX' else None
     result['a_record'] = cached['a_record']
