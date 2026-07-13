@@ -72,7 +72,10 @@ LOW_QUALITY_DOMAINS = {
 # Excluded from deliverable/push even if SMTP passes.
 PLATFORM_DOMAINS = {
     'birdeye.com', 'birdeye.ca', 'birdeye.co.uk',
-    'verifiednode.com', 'qualitybusinessawards.com',
+    'verifiednode.com',
+    'qualitybusinessawards.com', 'qualitybusinessawards.ca',
+    'canadiancares.com', 'canadiancares.ca',
+    'mailservice.com',
     'manta.com', 'yellowpages.com', 'hotfrog.com', 'hotfrog.ca',
     'cylex.us.com', 'cylex.ca', 'cylex.net',
     'chamberofcommerce.com', 'bbb.org',
