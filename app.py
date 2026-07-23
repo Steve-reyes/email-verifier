@@ -469,7 +469,7 @@ def _run_all_smtp():
         _smtp_set_progress(running=True, list_index=0, list_total=0, email_index=0, email_total=0, current_list='')
         db = sqlite3.connect(DB_PATH)
         db.row_factory = sqlite3.Row
-        rows = db.execute('SELECT id, list_name FROM verified_lists WHERE smtp_done = 0').fetchall()
+        rows = db.execute('SELECT id, list_name FROM verified_lists').fetchall()
         if not rows:
             _smtp_set_progress(running=False)
             return
@@ -549,7 +549,7 @@ def smtp_check_all():
     if _smtp_running():
         return jsonify({'status': 'already_running', 'message': 'SMTP check is already running'})
     db = get_db()
-    rows = db.execute('SELECT COUNT(*) as cnt FROM verified_lists WHERE smtp_done = 0').fetchone()
+    rows = db.execute('SELECT COUNT(*) as cnt FROM verified_lists').fetchone()
     pending = rows['cnt'] if rows else 0
     if pending == 0:
         return jsonify({'status': 'ok', 'message': 'All lists already SMTP checked', 'lists_checked': 0})
