@@ -93,7 +93,8 @@ tr:hover td{background:rgba(59,130,246,0.03)}
 <script>
 let lastResults = [];
 function smtpLabel(code, catchAll) {
-  if (code === 'quick' || code === '' || !code) return '🔍 DNS Only';
+  if (code === 'quick' || code === undefined || code === null) return '🔍 DNS Only';
+  if (code === '' || code === 'NO RESP') return '❓ No Response';
   if (code === 'SKIPPED') return '⏭ Skipped';
   if (code && code.startsWith('ERR:')) return '❌ Error';
   if (catchAll && catchAll.catch_all) return '⚠️ Catch-All';
@@ -358,7 +359,7 @@ async function toggleDetail(listId, silent) {
       else if (valid === true) { mark = '✅'; badge = '<span class="badge badge-green">Valid</span>'; }
       else if (valid === false) { mark = '❌'; badge = '<span class="badge badge-red">Invalid</span>'; }
       else { mark = '❓'; badge = '<span class="badge badge-amber">Unknown</span>'; }
-      const smtp = vr && vr.smtp_status ? smtpLabel(vr.smtp_status, vr.catch_all) : (vr && vr.valid !== null ? smtpLabel('quick') : '-');
+      const smtp = vr && vr.smtp_status !== undefined && vr.smtp_status !== null ? smtpLabel(vr.smtp_status === '' ? 'NO RESP' : vr.smtp_status, vr.catch_all) : (vr && vr.valid !== null ? smtpLabel('quick') : '-');
       const role = vr && vr.role_based ? 'Y' : (vr ? 'N' : '-');
       const st = vr && vr.spam_trap ? 'Y' : (vr ? 'N' : '-');
       const ca = vr && vr.catch_all && vr.catch_all.catch_all ? 'Y' : (vr && vr.catch_all ? 'N' : '-');
