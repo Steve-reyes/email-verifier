@@ -9,7 +9,7 @@ import time
 import re
 import dns.resolver
 import dns.exception
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 HOST = '0.0.0.0'
 PORT = 8081
@@ -225,6 +225,6 @@ class SMTPVerifyHandler(BaseHTTPRequestHandler):
 
 
 if __name__ == '__main__':
-    server = HTTPServer((HOST, PORT), SMTPVerifyHandler)
+    server = ThreadingHTTPServer((HOST, PORT), SMTPVerifyHandler)
     print(f'SMTP Verify Daemon running on {HOST}:{PORT}')
     server.serve_forever()

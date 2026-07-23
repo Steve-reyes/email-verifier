@@ -1,4 +1,4 @@
-import os, re, json, requests, time, socket, dns.resolver, hashlib, hmac, string
+import os, re, json, requests, time, socket, dns.resolver, hashlib, hmac, string, threading
 from flask import Flask, request, jsonify, render_template, Response, g
 import sqlite3, csv, io, uuid
 from datetime import datetime
@@ -164,6 +164,11 @@ def verify_one_light(email):
     if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
         result['syntax_valid'] = False; result['valid'] = False; return result
     local, _, domain = email.partition('@')
+    # sales@ always unknown
+    if local == 'sales':
+        result['valid'] = None
+        result['role_based'] = True
+        return result
     t = detect_typo_domain(domain)
     if t: result['typo'] = t; result['valid'] = False; return result
     if is_dummy_email(local, domain): result['valid'] = False; return result
@@ -183,6 +188,10 @@ def verify_one_light(email):
     return result
 
 def verify_via_daemon(email):
+    # sales@ always unknown, skip daemon
+    local = email.split('@')[0] if '@' in email else ''
+    if local == 'sales':
+        return {'email': email, 'valid': None, 'smtp_status': 'SALES_SKIPPED', 'catch_all': None, 'mx': None, 'smtp_time': 0}
     try:
         r = requests.post(SMTP_DAEMON_URL, json={'email': email}, timeout=SMTP_DAEMON_TIMEOUT)
         return r.json()
@@ -246,8 +255,52 @@ def upload_and_verify():
 @app.route('/api/verified-lists', methods=['GET'])
 def get_verified_lists():
     db = get_db()
-    rows = db.execute('SELECT id, list_name, verified_at, total_rows, total_emails, valid_count, invalid_count, smtp_done FROM verified_lists ORDER BY verified_at DESC').fetchall()
-    return jsonify({'lists': [dict(r) for r in rows]})
+    rows = db.execute('SELECT id, list_name, verified_at, total_rows, smtp_done FROM verified_lists ORDER BY verified_at DESC').fetchall()
+    result = []
+    for r in rows:
+        item = dict(r)
+        lrow = db.execute('SELECT verification_results FROM verified_lists WHERE id = ?', (r['id'],)).fetchone()
+        if lrow and lrow['verification_results']:
+            vr = json.loads(lrow['verification_results'])
+            item['total_emails'] = len(vr)
+            item['valid_count'] = sum(1 for v in vr.values() if v['valid'] is True)
+            item['invalid_count'] = sum(1 for v in vr.values() if v['valid'] is False)
+        else:
+            item['total_emails'] = 0
+            item['valid_count'] = 0
+            item['invalid_count'] = 0
+        result.append(item)
+    return jsonify({'lists': result})
+
+@app.route('/api/verify-stats', methods=['GET'])
+def verify_stats():
+    db = get_db()
+    rows = db.execute('SELECT id, total_emails, valid_count, invalid_count, smtp_done FROM verified_lists').fetchall()
+    total_lists = len(rows)
+    total_valid = 0
+    total_invalid = 0
+    total_emails = 0
+    smtp_checked = 0
+    for r in rows:
+        lrow = db.execute('SELECT verification_results FROM verified_lists WHERE id = ?', (r['id'],)).fetchone()
+        if lrow and lrow['verification_results']:
+            vr = json.loads(lrow['verification_results'])
+            total_emails += len(vr)
+            total_valid += sum(1 for v in vr.values() if v['valid'] is True)
+            total_invalid += sum(1 for v in vr.values() if v['valid'] is False)
+        if r['smtp_done']:
+            smtp_checked += 1
+    total_unknown = total_emails - total_valid - total_invalid
+    smtp_pending = total_lists - smtp_checked
+    return jsonify({
+        'total_lists': total_lists,
+        'total_emails': total_emails,
+        'total_valid': total_valid,
+        'total_invalid': total_invalid,
+        'total_unknown': total_unknown,
+        'smtp_checked': smtp_checked,
+        'smtp_pending': smtp_pending
+    })
 
 @app.route('/api/verified-lists/<list_id>/download', methods=['GET'])
 def download_verified_list(list_id):
@@ -301,6 +354,63 @@ def download_deliverable(list_id):
         return Response('No deliverable emails found', mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename={row["list_name"]}_deliverable.csv'})
     return Response(output.getvalue(), mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename={row["list_name"]}_deliverable.csv'})
 
+@app.route('/api/verified-lists/<list_id>/download-emails', methods=['GET'])
+def download_emails_only(list_id):
+    db = get_db()
+    row = db.execute('SELECT * FROM verified_lists WHERE id = ?', (list_id,)).fetchone()
+    if not row: return jsonify({'error': 'List not found'}), 404
+    headers = json.loads(row['original_csv_headers'])
+    original_rows = json.loads(row['original_rows'])
+    email_col = next((c for c in ['Email', 'email', 'EMAIL', 'e-mail', 'E-mail'] if c in headers), headers[0])
+    output = io.StringIO()
+    vresults = json.loads(row['verification_results'])
+    w = csv.writer(output)
+    w.writerow(headers + ['Status', 'Catch-All', 'Spam Trap', 'Role', 'SMTP Status'])
+    count = 0
+    for r in original_rows:
+        raw = strip_quotes(r.get(email_col, '').strip().lower())
+        if not raw or '@' not in raw:
+            continue
+        vr = vresults.get(raw, {})
+        status = 'Invalid'
+        if vr.get('valid') is True: status = 'Valid'
+        elif vr.get('valid') is None: status = 'Unknown'
+        w.writerow([r.get(h, '') for h in headers] + [status, 'Yes' if vr.get('catch_all') else 'No', 'Yes' if vr.get('spam_trap') else 'No', 'Yes' if vr.get('role_based') else 'No', vr.get('smtp_status', 'quick')])
+        count += 1
+    if count == 0:
+        return Response('No rows with email addresses found', mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename={row["list_name"]}_emails_only.csv'})
+    return Response(output.getvalue(), mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename={row["list_name"]}_emails_only.csv'})
+
+@app.route('/api/verified-lists/<list_id>/download-valid', methods=['GET'])
+def download_valid(list_id):
+    db = get_db()
+    row = db.execute('SELECT * FROM verified_lists WHERE id = ?', (list_id,)).fetchone()
+    if not row: return jsonify({'error': 'List not found'}), 404
+    headers = json.loads(row['original_csv_headers'])
+    original_rows = json.loads(row['original_rows'])
+    vresults = json.loads(row['verification_results'])
+    email_col = next((c for c in ['Email', 'email', 'EMAIL', 'e-mail', 'E-mail'] if c in headers), headers[0])
+    output = io.StringIO()
+    w = csv.writer(output)
+    w.writerow(headers + ['Status', 'Catch-All', 'Spam Trap', 'Role', 'SMTP Status'])
+    count = 0
+    for r in original_rows:
+        raw = strip_quotes(r.get(email_col, '').strip().lower())
+        if not raw or '@' not in raw:
+            continue
+        local = raw.split('@')[0]
+        if local == 'sales':
+            continue
+        vr = vresults.get(raw, {})
+        if vr.get('valid') is not True:
+            continue
+        status = 'Valid'
+        w.writerow([r.get(h, '') for h in headers] + [status, 'Yes' if vr.get('catch_all') else 'No', 'Yes' if vr.get('spam_trap') else 'No', 'Yes' if vr.get('role_based') else 'No', vr.get('smtp_status', 'quick')])
+        count += 1
+    if count == 0:
+        return Response('No valid emails found', mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename={row["list_name"]}_valid.csv'})
+    return Response(output.getvalue(), mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename={row["list_name"]}_valid.csv'})
+
 @app.route('/api/verified-lists/<list_id>/detail', methods=['GET'])
 def verified_list_detail(list_id):
     db = get_db()
@@ -311,8 +421,12 @@ def verified_list_detail(list_id):
     original_rows = json.loads(row['original_rows'])
     vresults = json.loads(row['verification_results'])
     email_col = next((c for c in ['Email', 'email', 'EMAIL', 'e-mail', 'E-mail'] if c in headers), headers[0])
+    # Compute actual counts from verification results for real-time accuracy
+    vc = sum(1 for v in vresults.values() if v['valid'] is True)
+    ic = sum(1 for v in vresults.values() if v['valid'] is False)
+    total_emails = len(vresults)
     rows_data = [{'original': r, 'verification': vresults.get(strip_quotes(r.get(email_col, '').strip().lower()), {})} for r in original_rows]
-    return jsonify({'list_name': row['list_name'], 'verified_at': row['verified_at'], 'headers': headers, 'email_col': email_col, 'rows': rows_data, 'total_rows': row['total_rows'], 'total_emails': row['total_emails'], 'valid_count': row['valid_count'], 'invalid_count': row['invalid_count']})
+    return jsonify({'list_name': row['list_name'], 'verified_at': row['verified_at'], 'headers': headers, 'email_col': email_col, 'rows': rows_data, 'total_rows': row['total_rows'], 'total_emails': total_emails, 'valid_count': vc, 'invalid_count': ic})
 
 @app.route('/api/list-smtp-check/<list_id>', methods=['POST'])
 def list_smtp_check(list_id):
@@ -350,6 +464,116 @@ def list_smtp_check(list_id):
     db.commit()
     return jsonify({'status': 'ok', 'valid': vc, 'invalid': ic, 'unknown': len(vresults)-vc-ic})
 
+def _run_all_smtp():
+    """Run SMTP check on all pending lists (background thread)."""
+    try:
+        _smtp_set_progress(running=True, list_index=0, list_total=0, email_index=0, email_total=0, current_list='')
+        db = sqlite3.connect(DB_PATH)
+        db.row_factory = sqlite3.Row
+        rows = db.execute('SELECT id, list_name FROM verified_lists WHERE smtp_done = 0').fetchall()
+        if not rows:
+            _smtp_set_progress(running=False)
+            return
+        _smtp_set_progress(list_total=len(rows))
+        for li, row in enumerate(rows):
+            if _smtp_stop_requested():
+                break
+            lid = row['id']
+            _smtp_set_progress(list_index=li+1, current_list=row['list_name'])
+            lrow = db.execute('SELECT * FROM verified_lists WHERE id = ?', (lid,)).fetchone()
+            if not lrow:
+                continue
+            vresults = json.loads(lrow['verification_results'])
+            headers = json.loads(lrow['original_csv_headers'])
+            original_rows = json.loads(lrow['original_rows'])
+            email_col = next((c for c in ['Email', 'email', 'EMAIL', 'e-mail', 'E-mail'] if c in headers), headers[0])
+            emails_to_check = []
+            for r in original_rows:
+                raw = strip_quotes(r.get(email_col, '').strip().lower())
+                if raw and raw in vresults and (vresults[raw].get('valid') is True or vresults[raw].get('valid') is None):
+                    emails_to_check.append(raw)
+            _smtp_set_progress(email_total=len(emails_to_check), email_index=0)
+            changed = False
+            for ei, raw in enumerate(emails_to_check):
+                if _smtp_stop_requested():
+                    break
+                _smtp_set_progress(email_index=ei+1)
+                sr = verify_one(raw)
+                vresults[raw]['smtp_status'] = sr.get('smtp_status', 'ERR')
+                vresults[raw]['smtp_time'] = sr.get('smtp_time', None)
+                vresults[raw]['catch_all'] = sr.get('catch_all', None)
+                if vresults[raw].get('valid') is not False:
+                    vresults[raw]['valid'] = sr.get('valid', vresults[raw].get('valid'))
+                vresults[raw]['mx'] = sr.get('mx', vresults[raw].get('mx'))
+                vresults[raw]['rcp_response'] = sr.get('rcp_response', vresults[raw].get('rcp_response'))
+                changed = True
+            if changed:
+                vc = sum(1 for v in vresults.values() if v['valid'] is True)
+                ic = sum(1 for v in vresults.values() if v['valid'] is False)
+                db.execute('UPDATE verified_lists SET verification_results=?, valid_count=?, invalid_count=?, smtp_done=1 WHERE id=?',
+                    (json.dumps(vresults), vc, ic, lid))
+            else:
+                db.execute('UPDATE verified_lists SET smtp_done=1 WHERE id=?', (lid,))
+            db.commit()
+        db.close()
+    finally:
+        _smtp_set_progress(running=False, list_index=0, list_total=0, email_index=0, email_total=0, current_list='')
+        # Remove stop file if exists
+        if os.path.exists(SMTP_STOP_FILE): os.remove(SMTP_STOP_FILE)
+
+# Track SMTP All progress/stop (file-based for gunicorn multi-worker)
+SMTP_PROGRESS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.smtp_progress.json')
+SMTP_STOP_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.smtp_stop')
+
+def _smtp_get_progress():
+    try:
+        with open(SMTP_PROGRESS_FILE) as f:
+            return json.load(f)
+    except: return {'running': False, 'list_index': 0, 'list_total': 0, 'email_index': 0, 'email_total': 0, 'current_list': ''}
+
+def _smtp_set_progress(**kw):
+    p = _smtp_get_progress()
+    p.update(kw)
+    with open(SMTP_PROGRESS_FILE, 'w') as f:
+        json.dump(p, f)
+
+def _smtp_stop_requested():
+    return os.path.exists(SMTP_STOP_FILE)
+
+def _smtp_running():
+    p = _smtp_get_progress()
+    return p.get('running', False)
+
+DB_WRITE_LOCK = threading.Lock()
+
+@app.route('/api/smtp-check-all', methods=['POST'])
+def smtp_check_all():
+    if _smtp_running():
+        return jsonify({'status': 'already_running', 'message': 'SMTP check is already running'})
+    db = get_db()
+    rows = db.execute('SELECT COUNT(*) as cnt FROM verified_lists WHERE smtp_done = 0').fetchone()
+    pending = rows['cnt'] if rows else 0
+    if pending == 0:
+        return jsonify({'status': 'ok', 'message': 'All lists already SMTP checked', 'lists_checked': 0})
+    _smtp_set_progress(running=True, list_total=pending, list_index=0, email_index=0, email_total=0, current_list='')
+    t = threading.Thread(target=_run_all_smtp, daemon=True)
+    t.start()
+    return jsonify({'status': 'started', 'message': f'Checking {pending} lists in background...', 'lists_pending': pending})
+
+@app.route('/api/smtp-check-status', methods=['GET'])
+def smtp_check_status():
+    p = _smtp_get_progress()
+    if not p.get('running', False):
+        return jsonify({'running': False})
+    return jsonify(p)
+
+@app.route('/api/smtp-check-stop', methods=['POST'])
+def smtp_check_stop():
+    # Create stop file
+    with open(SMTP_STOP_FILE, 'w') as f:
+        f.write('1')
+    return jsonify({'status': 'stopping'})
+
 @app.route('/api/verified-lists/<list_id>', methods=['DELETE'])
 def delete_verified_list(list_id):
     db = get_db()
@@ -371,7 +595,7 @@ def download():
 
 PLUSVIBE_BASE = 'https://api.plusvibe.ai/api/v1'
 APP_URL = 'https://app.plusvibe.ai'
-PLUSVIBE_API_KEY = '15ef281c-f0872347-6eb1dd65-0914fcd1'
+PLUSVIBE_API_KEY = 'f74f325b-a14217c0-e7034711-f1abfdcb'
 PLUSVIBE_WS_ID = '6a504024997812a6e6981e1f'
 
 @app.route('/api/push-to-plusvibe/<list_id>', methods=['POST'])

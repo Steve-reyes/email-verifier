@@ -255,10 +255,43 @@ async function loadLists() {
       div.innerHTML = '<div style="text-align:center;padding:48px;color:#64748B"><div style="font-size:48px;margin-bottom:12px">📋</div><h3 style="color:#94A3B8">No verified lists yet</h3><p style="font-size:13px">Upload a CSV on the Verify tab</p><button class="btn btn-primary" onclick="switchTab(\'verify\')" style="margin-top:16px">Go to Verify</button></div>';
       return;
     }
-    let html = '<div class="row" style="justify-content:space-between;margin-bottom:16px">' +
+    let statsHtml = '';
+    try {
+      const sr = await fetch('/api/verify-stats');
+      const sd = await sr.json();
+      let smtpStatusHtml = '';
+      try {
+        const st = await fetch('/api/smtp-check-status');
+        const sd2 = await st.json();
+        if (sd2.running) {
+          const listPct = Math.round((sd2.list_index/sd2.list_total)*100);
+          const emailPct = sd2.email_total > 0 ? Math.round((sd2.email_index/sd2.email_total)*100) : 0;
+          smtpStatusHtml = '<div id="smtpProgressBar" style="margin-bottom:12px;padding:10px 14px;background:#1A1D2E;border:1px solid #3B82F6;border-radius:8px">' +
+            '<div style="display:flex;justify-content:space-between;margin-bottom:6px">' +
+            '<span style="color:#3B82F6;font-weight:600">🔍 SMTP Running... <span id="smtpCurrentList" style="color:#94A3B8;font-weight:400;font-size:12px">'+String(sd2.current_list||'').slice(0,30)+'</span></span>' +
+            '<span id="smtpStopBtn"><button class="btn btn-outline btn-sm" onclick="stopAllSmtp()" style="color:#EF4444;border-color:#EF4444">✕ Stop</button></span></div>' +
+            '<div style="display:flex;gap:8px;align-items:center;margin-bottom:4px">' +
+            '<span style="color:#94A3B8;font-size:11px" id="smtpProgressText">📋 '+sd2.list_index+'/'+sd2.list_total+' lists</span>' +
+            '<span style="color:#94A3B8;font-size:11px" id="smtpEmailProgressText">📧 '+sd2.email_index+'/'+sd2.email_total+' emails</span></div>' +
+            '<div style="width:100%;height:6px;background:#0B0D14;border-radius:3px;overflow:hidden">' +
+            '<div id="smtpProgressFill" style="width:'+listPct+'%;height:100%;background:linear-gradient(90deg,#3B82F6,#22C55E);border-radius:3px;transition:width .5s ease"></div></div></div>';
+        }
+      } catch(e) {}
+      statsHtml = smtpStatusHtml + '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;padding:12px 16px;background:#0B0D14;border-radius:8px">' +
+        '<div><span style="color:#64748B;font-size:11px">📋 Lists</span><div style="font-size:18px;font-weight:600;color:#F1F5F9">'+sd.total_lists+'</div></div>' +
+        '<div><span style="color:#64748B;font-size:11px">📧 Emails</span><div style="font-size:18px;font-weight:600;color:#F1F5F9">'+sd.total_emails+'</div></div>' +
+        '<div><span style="color:#64748B;font-size:11px">✅ Valid</span><div style="font-size:18px;font-weight:600;color:#22C55E">'+sd.total_valid+'</div></div>' +
+        '<div><span style="color:#64748B;font-size:11px">❌ Invalid</span><div style="font-size:18px;font-weight:600;color:#EF4444">'+sd.total_invalid+'</div></div>' +
+        '<div><span style="color:#64748B;font-size:11px">❓ Unknown</span><div style="font-size:18px;font-weight:600;color:#64748B">'+sd.total_unknown+'</div></div>' +
+        '<div><span style="color:#64748B;font-size:11px">🔍 SMTP Checked</span><div style="font-size:18px;font-weight:600;color:'+(sd.smtp_checked>0?'#22C55E':'#64748B')+'">'+sd.smtp_checked+'/'+sd.total_lists+'</div></div>' +
+        '</div>';
+    } catch(e) {}
+    let html = statsHtml + '<div class="row" style="justify-content:space-between;margin-bottom:16px">' +
       '<span style="color:#F1F5F9;font-weight:600">'+lists.length+' lists</span>' +
+      '<div style="display:flex;gap:8px">' +
+      '<button class="btn btn-outline btn-sm" onclick="runAllSmtp()" id="smtpAllBtn">🔍 Run SMTP All</button>' +
       '<label class="btn btn-outline btn-sm" for="csvUploadFull2">+ Upload New</label>' +
-      '<input type="file" id="csvUploadFull2" accept=".csv" onchange="uploadAndVerify(this)" style="display:none"></div>';
+      '<input type="file" id="csvUploadFull2" accept=".csv" onchange="uploadAndVerify(this)" style="display:none"></div></div>';
     for (const l of lists) {
       const safe = String(l.list_name).replace(/&/g,'&amp;').replace(/</g,'&lt;');
       const dt = new Date(l.verified_at).toLocaleString();
@@ -275,6 +308,8 @@ async function loadLists() {
         '<div style="display:flex;gap:8px" onclick="event.stopPropagation()">' +
         '<button class="btn btn-success btn-sm" onclick="window.open(\'/api/verified-lists/'+l.id+'/download\',\'_blank\')">All</button>' +
 '<button class="btn btn-outline btn-sm" onclick="window.open(\'/api/verified-lists/'+l.id+'/download-deliverable\',\'_blank\')">Deliverable</button>' +
+        '<button class="btn btn-primary btn-sm" onclick="window.open(\'/api/verified-lists/'+l.id+'/download-emails\',\'_blank\')">Download Emails</button>' +
+        '<button class="btn btn-success btn-sm" onclick="window.open(\'/api/verified-lists/'+l.id+'/download-valid\',\'_blank\')">Download Valid Emails</button>' +
         '<button class="btn btn-danger btn-sm" onclick="delList(\''+l.id+'\')">Delete</button></div>' +
         '</div><div class="list-detail" id="detail-'+l.id+'"></div></div>';
     }
@@ -301,16 +336,9 @@ async function toggleDetail(listId, silent) {
   try {
     const r = await fetch('/api/verified-lists/'+listId+'/detail');
     const d = await r.json();
-    let vc = 0, ic = 0, uc = 0;
-    for (const row of d.rows) {
-      const vr = row.verification;
-      const ev = row.original[d.email_col] || '';
-      if (!ev.trim()) uc++;
-      else if (!vr || vr.valid === undefined || vr.valid === null) uc++;
-      else if (vr.valid === true) vc++;
-      else if (vr.valid === false) ic++;
-    }
+    const vc = d.valid_count, ic = d.invalid_count, uc = d.total_emails - d.valid_count - d.invalid_count;
     let html = '<div style="display:flex;gap:16px;margin-bottom:12px;font-size:12px;flex-wrap:wrap;align-items:center">' +
+      '<span style="color:#64748B">Emails: <span style="color:#F1F5F9">'+d.total_emails+'</span></span>' +
       '<span style="color:#64748B">Valid: <span style="color:#22C55E">'+vc+'</span></span>' +
       '<span style="color:#64748B">Invalid: <span style="color:#EF4444">'+ic+'</span></span>' +
       '<span style="color:#64748B">Unknown: <span style="color:#F59E0B">'+uc+'</span></span>' +
@@ -389,6 +417,62 @@ async function runListSmtp(listId) {
     btn.textContent = '🔍 Run SMTP Check'; btn.disabled = false;
   }
 }
+async function stopAllSmtp() {
+  try {
+    await fetch('/api/smtp-check-stop', {method:'POST'});
+    toast('⏹ Stopping...', 'warning');
+  } catch(e) {}
+}
+
+async function runAllSmtp() {
+  const btn = document.getElementById('smtpAllBtn');
+  btn.disabled = true; btn.textContent = '⏳ Running...';
+  try {
+    const r = await fetch('/api/smtp-check-all', {method:'POST'});
+    const d = await r.json();
+    if (d.status === 'already_running') {
+      toast('⏳ SMTP check already running', 'warning');
+    } else if (d.lists_checked === 0) {
+      toast('✅ '+d.message, 'success');
+    } else if (d.status === 'started') {
+      toast('⏳ '+d.message, 'success');
+      // Reload lists to show progress bar
+      setTimeout(() => loadLists(), 1000);
+    } else {
+      toast('✅ Checked '+d.lists_checked+' lists ('+d.total_emails+' emails)', 'success');
+      loadLists();
+    }
+    const poll = setInterval(async () => {
+      try {
+        const st = await fetch('/api/smtp-check-status');
+        const sd3 = await st.json();
+        if (sd3.running) {
+          const listPct = sd3.list_total > 0 ? Math.round((sd3.list_index/sd3.list_total)*100) : 0;
+          const emailPct = sd3.email_total > 0 ? Math.round((sd3.email_index/sd3.email_total)*100) : 0;
+          const pb = document.getElementById('smtpProgressBar');
+          if (pb) {
+            document.getElementById('smtpProgressText').textContent = '📋 '+(sd3.list_index||0)+'/'+(sd3.list_total||0)+' lists';
+            document.getElementById('smtpEmailProgressText').textContent = '📧 '+(sd3.email_index||0)+'/'+(sd3.email_total||0)+' emails';
+            document.getElementById('smtpProgressFill').style.width = listPct+'%';
+            const cl = document.getElementById('smtpCurrentList');
+            if (cl) cl.textContent = String(sd3.current_list||'').slice(0,30);
+          } else {
+            loadLists();
+          }
+        } else {
+          clearInterval(poll);
+          btn.disabled = false; btn.textContent = '🔍 Run SMTP All';
+          loadLists();
+        }
+      } catch(e) { clearInterval(poll); btn.disabled = false; btn.textContent = '🔍 Run SMTP All'; loadLists(); }
+    }, 5000);
+    setTimeout(() => { clearInterval(poll); btn.disabled = false; btn.textContent = '🔍 Run SMTP All'; loadLists(); }, 600000);
+  } catch(e) {
+    toast('❌ '+e.message, 'error');
+    btn.disabled = false; btn.textContent = '🔍 Run SMTP All';
+  }
+}
+
 async function delList(id) {
   if (!confirm('Delete this list?')) return;
   try { await fetch('/api/verified-lists/'+id, {method:'DELETE'}); loadLists(); }

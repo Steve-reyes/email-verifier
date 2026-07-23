@@ -6,7 +6,9 @@ services:
     ports:
       - "5002:5002"
     volumes:
-      - ./app.db:/app/app.db
+      - ./app.py:/app/app.py
+      - ./templates:/app/templates
+      - ./verifier.db:/app/verifier.db
       - ./data:/app/data
     environment:
       - TZ=Europe/Madrid
