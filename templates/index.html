@@ -159,27 +159,26 @@ async function verify() {
     '<div style="background:#0B0D14;border-radius:6px;height:18px;overflow:hidden">' +
     '<div id="smtpAutoBar" style="width:0%;height:100%;background:linear-gradient(90deg,#3B82F6,#22C55E);border-radius:6px;transition:width .3s ease"></div></div></div>';
   document.getElementById('results').appendChild(smtpProgress);
-  for (let vi = 0; vi < validEmails.length; vi++) {
-    if (!document.getElementById('smtpAutoText')) break;
-    document.getElementById('smtpAutoText').textContent = vi + ' / ' + validEmails.length;
-    document.getElementById('smtpAutoPct').textContent = Math.round((vi/validEmails.length)*100) + '%';
-    document.getElementById('smtpAutoBar').style.width = Math.round((vi/validEmails.length)*100) + '%';
-    try {
-      const r = await fetch('/api/smtp-run', { method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({emails: [validEmails[vi].email]}) });
-      const txt = await r.text();
-      let dr;
-      try { dr = JSON.parse(txt); } catch(e) { continue; }
-      if (dr.results && dr.results[0]) {
-        const sr = dr.results[0];
-        validEmails[vi].valid = sr.valid;
-        validEmails[vi].smtp_status = sr.smtp_status;
-        validEmails[vi].smtp_time = sr.smtp_time;
-        validEmails[vi].catch_all = sr.catch_all;
-        validEmails[vi].mx = sr.mx;
+  document.getElementById('smtpAutoText').textContent = validEmails.length+' / '+validEmails.length;
+  document.getElementById('smtpAutoPct').textContent = '100%';
+  document.getElementById('smtpAutoBar').style.width = '100%';
+  try {
+    const r = await fetch('/api/smtp-run', { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({emails: validEmails.map(e => e.email)}) });
+    const dr = await r.json();
+    if (dr.results) {
+      for (let vi = 0; vi < dr.results.length && vi < validEmails.length; vi++) {
+        const sr = dr.results[vi];
+        if (sr) {
+          validEmails[vi].valid = sr.valid;
+          validEmails[vi].smtp_status = sr.smtp_status;
+          validEmails[vi].smtp_time = sr.smtp_time;
+          validEmails[vi].catch_all = sr.catch_all;
+          validEmails[vi].mx = sr.mx;
+        }
       }
-    } catch(e) {}
-  }
+    }
+  } catch(e) { console.error('SMTP batch failed', e); }
   if (document.getElementById('smtpAutoText')) {
     document.getElementById('smtpAutoText').textContent = validEmails.length+' / '+validEmails.length;
     document.getElementById('smtpAutoPct').textContent = '100%';
@@ -396,17 +395,13 @@ async function runListSmtp(listId) {
       '<span id="listSmtpPct">0%</span></div>' +
       '<div style="background:#0B0D14;border-radius:6px;height:18px;overflow:hidden">' +
       '<div id="listSmtpBar" style="width:0%;height:100%;background:linear-gradient(90deg,#3B82F6,#22C55E);border-radius:6px;transition:width .3s ease"></div></div></div>');
-    for (let i = 0; i < toCheck.length; i++) {
-      btn.textContent = (i+1) + ' / ' + toCheck.length;
-      const pct = Math.round(((i+1)/toCheck.length)*100);
-      if (document.getElementById('listSmtpText')) document.getElementById('listSmtpText').textContent = (i+1) + ' / ' + toCheck.length;
-      if (document.getElementById('listSmtpPct')) document.getElementById('listSmtpPct').textContent = pct + '%';
-      if (document.getElementById('listSmtpBar')) document.getElementById('listSmtpBar').style.width = pct + '%';
-      try {
-        await fetch('/api/list-smtp-check/'+listId, { method: 'POST', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({emails: [toCheck[i]]}) });
-      } catch(e) {}
-    }
+    btn.textContent = '⏳ Sending...';
+    if (document.getElementById('listSmtpText')) document.getElementById('listSmtpText').textContent = toCheck.length + ' / ' + toCheck.length;
+    if (document.getElementById('listSmtpPct')) document.getElementById('listSmtpPct').textContent = '100%';
+    if (document.getElementById('listSmtpBar')) document.getElementById('listSmtpBar').style.width = '100%';
+    const resp = await fetch('/api/list-smtp-check/'+listId, { method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({emails: toCheck}) });
+    if (!resp.ok) { throw new Error('API returned '+resp.status); }
     if (document.getElementById('listSmtpProgress')) document.getElementById('listSmtpProgress').remove();
     detail.innerHTML = '';
     toggleDetail(listId, true);

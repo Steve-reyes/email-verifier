@@ -158,8 +158,8 @@ def detect_typo_domain(domain):
     return known.get(domain)
 
 def verify_one_light(email):
+    email = urllib.parse.unquote(email).strip().lower()
     result = {'email': email, 'valid': None, 'syntax_valid': True, 'catch_all': None, 'role_based': False, 'mx': None, 'dual_rcpt': None, 'spam_trap': False, 'typo': None, 'gravatar': False, 'hibp_count': None, 'a_record': False, 'low_quality': False, 'disposable': False}
-    email = email.strip().lower()
     result['email'] = email
     if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
         result['syntax_valid'] = False; result['valid'] = False; return result
@@ -239,7 +239,7 @@ def upload_and_verify():
     rows = [{h: r.get(h, '') for h in headers} for r in reader]
     vresults = {}
     for row in rows:
-        raw = strip_quotes(row.get(email_col, '').strip().lower())
+        raw = urllib.parse.unquote(strip_quotes(row.get(email_col, '').strip().lower()))
         if raw and re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', raw) and raw not in vresults:
             vresults[raw] = verify_one_light(raw)
     vc = sum(1 for v in vresults.values() if v['valid'] is True)
