@@ -28,7 +28,7 @@ This runs on a VPS that has **outbound port 25 open** (most cloud providers bloc
 1. Receives `{"email": "user@domain.com"}`
 2. Resolves MX records for the domain
 3. Opens a raw TCP socket to `mx_host:25`
-4. Performs `EHLO verifier` → `MAIL FROM: <checker@verify.leadzap.io>` → `RCPT TO: <target@domain.com>`
+4. Performs `EHLO verifier` → `MAIL FROM: <checker@smtp-verify.leadzap.io>` → `RCPT TO: <target@domain.com>`
 5. Parses the SMTP response code (250 = deliverable, 550 = bounce, etc.)
 6. Optionally performs a **dual-RCPT catch-all test** by sending a fake local-part alongside the real one
 7. Returns JSON result
@@ -94,7 +94,7 @@ Emails that pass Tier 1 (or have `valid: null`) get sent to the daemon individua
 4. SMTP conversation:
    ```
    S: EHLO verifier
-   S: MAIL FROM: <checker@verify.leadzap.io>
+   S: MAIL FROM: <checker@smtp-verify.leadzap.io>
    S: RCPT TO: <target@email.com>
    R: 250 2.1.5 OK            ← deliverable
    R: 550 5.1.1 User unknown  ← bounce
@@ -280,7 +280,7 @@ The following DNS records must be configured on your domain (assumes `leadzap.io
 | Setting | Value | Notes |
 |---------|-------|-------|
 | Listen address | `0.0.0.0:8081` | Binds all interfaces |
-| MAIL FROM | `checker@verify.leadzap.io` | Envelope sender for SMTP checks |
+| MAIL FROM | `checker@smtp-verify.leadzap.io` | Envelope sender for SMTP checks |
 | EHLO hostname | `verifier` | Sent in the EHLO command |
 | SMTP timeout | 6 seconds | Per-operation socket timeout |
 | DNS timeout | 3 seconds | MX/A record resolution timeout |
@@ -432,7 +432,7 @@ Werkzeug==3.1.8
 - The daemon runs as `nobody` on the VPS. It only listens on port 8081 (non-privileged) and never binds port 25.
 - The main server stores all data in a local SQLite database (`verifier.db`). No external database is required.
 - PlusVibe API credentials are stored in plain text in `app.py`. Consider moving to environment variables for production.
-- The daemon's MAIL FROM domain (`verify.leadzap.io`) should ideally have SPF and DKIM records to avoid being flagged during checks — though for verification purposes, most servers accept the connection regardless.
+- The daemon's MAIL FROM domain (`smtp-verify.leadzap.io`) should ideally have SPF and DKIM records to avoid being flagged during checks — though for verification purposes, most servers accept the connection regardless.
 
 ---
 
