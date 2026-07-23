@@ -440,14 +440,13 @@ def list_smtp_check(list_id):
         result['smtp_status'] = sr.get('smtp_status', 'ERR')
         result['smtp_time'] = sr.get('smtp_time', None)
         result['catch_all'] = sr.get('catch_all', None)
-        if result.get('valid') is not False:
-            result['valid'] = sr.get('valid', result.get('valid'))
+        result['valid'] = sr.get('valid', result.get('valid'))
         result['mx'] = sr.get('mx', result.get('mx'))
         result['rcp_response'] = sr.get('rcp_response', result.get('rcp_response'))
     if emails_param:
         for email in emails_param:
             email = email.strip().lower()
-            if email in vresults and (vresults[email].get('valid') is True or vresults[email].get('valid') is None):
+            if email in vresults:
                 merge_smtp(vresults[email], verify_one(email))
     else:
         headers = json.loads(row['original_csv_headers'])
@@ -455,7 +454,7 @@ def list_smtp_check(list_id):
         email_col = next((c for c in ['Email', 'email', 'EMAIL', 'e-mail', 'E-mail'] if c in headers), headers[0])
         for r in original_rows:
             raw = strip_quotes(r.get(email_col, '').strip().lower())
-            if raw and raw in vresults and (vresults[raw].get('valid') is True or vresults[raw].get('valid') is None):
+            if raw and raw in vresults:
                 merge_smtp(vresults[raw], verify_one(raw))
     vc = sum(1 for v in vresults.values() if v['valid'] is True)
     ic = sum(1 for v in vresults.values() if v['valid'] is False)
@@ -490,7 +489,7 @@ def _run_all_smtp():
             emails_to_check = []
             for r in original_rows:
                 raw = strip_quotes(r.get(email_col, '').strip().lower())
-                if raw and raw in vresults and (vresults[raw].get('valid') is True or vresults[raw].get('valid') is None):
+                if raw and raw in vresults:
                     emails_to_check.append(raw)
             _smtp_set_progress(email_total=len(emails_to_check), email_index=0)
             changed = False
@@ -502,8 +501,7 @@ def _run_all_smtp():
                 vresults[raw]['smtp_status'] = sr.get('smtp_status', 'ERR')
                 vresults[raw]['smtp_time'] = sr.get('smtp_time', None)
                 vresults[raw]['catch_all'] = sr.get('catch_all', None)
-                if vresults[raw].get('valid') is not False:
-                    vresults[raw]['valid'] = sr.get('valid', vresults[raw].get('valid'))
+                vresults[raw]['valid'] = sr.get('valid', vresults[raw].get('valid'))
                 vresults[raw]['mx'] = sr.get('mx', vresults[raw].get('mx'))
                 vresults[raw]['rcp_response'] = sr.get('rcp_response', vresults[raw].get('rcp_response'))
                 changed = True

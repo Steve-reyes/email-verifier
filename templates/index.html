@@ -149,7 +149,7 @@ async function verify() {
   const iv = results.filter(r => r.valid === false).length;
   const uk = results.length - v - iv;
   document.getElementById('results').innerHTML = renderResults(results, v, iv, uk);
-  const validEmails = results.filter(r => r.valid === true || r.valid === null);
+  const validEmails = results.filter(r => r.email);
   if (!validEmails.length) return;
   const smtpProgress = document.createElement('div');
   smtpProgress.innerHTML = '<div class="card" style="margin-top:12px;padding:16px"><div class="label">SMTP Deep Check on '+validEmails.length+' emails</div>' +
@@ -383,11 +383,11 @@ async function runListSmtp(listId) {
     const r = await fetch('/api/verified-lists/'+listId+'/detail');
     const d = await r.json();
     if (!d.rows || !d.rows.length) { btn.textContent = '🔍 Run SMTP Check'; btn.disabled = false; return; }
+    const emailCol = d.email_col || 'Email';
     const toCheck = [];
     for (const row of d.rows) {
-      const e = (row.original.Email || row.original.email || '').toLowerCase();
-      const vr = row.verification;
-      if (e && (vr.valid === true || vr.valid === null)) toCheck.push(e);
+      const e = (row.original[emailCol] || '').toLowerCase();
+      if (e) toCheck.push(e);
     }
     if (!toCheck.length) { toast('ℹ️ No emails to SMTP-check', 'info'); btn.textContent = '🔍 Run SMTP Check'; btn.disabled = false; return; }
     detail.insertAdjacentHTML('afterbegin',
